@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import { useRouter } from 'vue-router'
 import { useAppStore, type ThemeMode } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { SUPPORTED_LOCALES, type AppLocale } from '@/locales'
 
 const { t } = useI18n()
+const router = useRouter()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+
+async function handleLogout() {
+  await authStore.logout()
+  await router.replace({ name: 'login' })
+}
 
 const themeModes: ThemeMode[] = ['light', 'dark', 'system']
 
@@ -27,6 +36,12 @@ const localeLabels: Record<AppLocale, string> = {
       </nav>
 
       <div class="sidebar-footer">
+        <div v-if="authStore.user" class="user-row">
+          <span class="user-name">{{ authStore.user.nickname || authStore.user.username }}</span>
+          <button class="logout-button" type="button" @click="handleLogout">
+            {{ t('auth.logout') }}
+          </button>
+        </div>
         <div class="control-group" role="radiogroup" :aria-label="t('common.theme.label')">
           <button
             v-for="mode in themeModes"
@@ -131,6 +146,41 @@ const localeLabels: Record<AppLocale, string> = {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+.user-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface-hover);
+}
+
+.user-name {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-button {
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+.logout-button:hover {
+  color: var(--color-danger);
 }
 
 .control-group {

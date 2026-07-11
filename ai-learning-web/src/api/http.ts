@@ -1,7 +1,6 @@
-import axios, { AxiosError, type AxiosRequestConfig } from 'axios'
+import axios, { AxiosError, type AxiosRequestConfig, type InternalAxiosRequestConfig } from 'axios'
 import { API_SUCCESS_CODE, ApiError, type ApiResponse } from './types'
-
-export const TOKEN_STORAGE_KEY = 'alp.accessToken'
+import { tokenStorage } from './token-storage'
 
 const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL,
@@ -9,11 +8,87 @@ const http = axios.create({
 })
 
 http.interceptors.request.use((config) => {
-  const token = localStorage.getItem(TOKEN_STORAGE_KEY)
+  const token = tokenStorage.getAccessToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
   return config
+})
+
+// ---------------------------------------------------------------------------
+// Silent refresh
+//
+// On a 401 the interceptor rotates the refresh token once (single-flight — all
+// concurrent 401s await the same rotation) and replays the failed request.
+// When rotation itself fails the session is over: tokens are cleared and the
+// handler registered by the router redirects to the login page.
+// ---------------------------------------------------------------------------
+
+type RetriableConfig = InternalAxiosRequestConfig & { _retried?: boolean }
+
+/** Endpoints whose 401s are final — refreshing could not help. */
+const NO_REFRESH_URLS = ['/v1/auth/login', '/v1/auth/refresh']
+
+let onSessionExpired: (() => void) | null = null
+
+/** Registered once by the router guards; invoked when the session is unrecoverable. */
+export function setSessionExpiredHandler(handler: () => void) {
+  onSessionExpired = handler
+}
+
+interface RefreshResult {
+  accessToken: string
+  refreshToken: string
+  expiresIn: number
+}
+
+let refreshInFlight: Promise<void> | null = null
+
+async function refreshTokens(): Promise<void> {
+  const refreshToken = tokenStorage.getRefreshToken()
+  if (!refreshToken) {
+    throw new ApiError(-1, 'No refresh token', 'auth.error.sessionExpired')
+  }
+  // Bare axios call: must not pass through these interceptors.
+  const { data: envelope } = await axios.post<ApiResponse<RefreshResult>>(
+    `${import.meta.env.VITE_API_BASE_URL}/v1/auth/refresh`,
+    { refreshToken },
+    { timeout: 15_000 },
+  )
+  if (envelope.code !== API_SUCCESS_CODE) {
+    throw new ApiError(envelope.code, envelope.message, 'auth.error.sessionExpired')
+  }
+  tokenStorage.set(envelope.data)
+}
+
+function ensureRefreshed(): Promise<void> {
+  refreshInFlight ??= refreshTokens().finally(() => {
+    refreshInFlight = null
+  })
+  return refreshInFlight
+}
+
+http.interceptors.response.use(undefined, async (error: unknown) => {
+  if (!(error instanceof AxiosError) || error.response?.status !== 401) {
+    throw error
+  }
+  const config = error.config as RetriableConfig | undefined
+  if (!config || config._retried || NO_REFRESH_URLS.some((url) => config.url?.includes(url))) {
+    throw error
+  }
+  if (!tokenStorage.hasSession()) {
+    onSessionExpired?.()
+    throw error
+  }
+  try {
+    await ensureRefreshed()
+  } catch (refreshError) {
+    tokenStorage.clear()
+    onSessionExpired?.()
+    throw refreshError
+  }
+  config._retried = true
+  return http.request(config)
 })
 
 function toApiError(error: unknown): ApiError {

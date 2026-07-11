@@ -1,13 +1,34 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { i18n } from '@/locales'
 import AppLayout from '@/layouts/AppLayout.vue'
+import { installAuthGuards } from './guards'
+
+declare module 'vue-router' {
+  interface RouteMeta {
+    titleKey?: string
+    /** Route requires an authenticated session. */
+    requiresAuth?: boolean
+    /** Route is for unauthenticated visitors only (e.g. login). */
+    guestOnly?: boolean
+    /** Reserved for the RBAC phase — evaluated by the auth guards. */
+    roles?: string[]
+    permissions?: string[]
+  }
+}
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
+      path: '/login',
+      name: 'login',
+      component: () => import('@/views/LoginView.vue'),
+      meta: { titleKey: 'auth.login.title', guestOnly: true },
+    },
+    {
       path: '/',
       component: AppLayout,
+      meta: { requiresAuth: true },
       children: [
         {
           path: '',
@@ -20,7 +41,7 @@ const router = createRouter({
   ],
 })
 
-// Auth guard is added in Phase 2 (beforeEach checking meta.requiresAuth against the auth store).
+installAuthGuards(router)
 
 router.afterEach((to) => {
   const titleKey = to.meta.titleKey as string | undefined

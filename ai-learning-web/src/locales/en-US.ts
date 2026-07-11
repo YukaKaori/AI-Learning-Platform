@@ -29,6 +29,23 @@ const enUS: typeof zhCN = {
       serverTime: 'Server time',
     },
   },
+  auth: {
+    login: {
+      title: 'Sign in',
+      subtitle: 'Sign in to continue to your AI learning space',
+      usernameOrEmail: 'Username or email',
+      password: 'Password',
+      submit: 'Sign in',
+      required: 'Please fill in all sign-in fields',
+    },
+    logout: 'Sign out',
+    error: {
+      invalidCredentials: 'Incorrect username or password',
+      accountLocked: 'This account is locked — please contact an administrator',
+      accountDisabled: 'This account is disabled — please contact an administrator',
+      sessionExpired: 'Your session has expired, please sign in again',
+    },
+  },
   error: {
     network: 'Network error, please try again later',
     timeout: 'Request timed out, please try again later',

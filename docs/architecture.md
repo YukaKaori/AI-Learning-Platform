@@ -80,10 +80,121 @@ scheduler, audit log.
 See `database/README.md`: snake_case, utf8mb4, mandatory audit columns, logical
 foreign keys, migration-only changes.
 
+## Identity & security (Phase 2)
+
+### Architecture
+
+Stateless authentication with a two-token model:
+
+- **Access token** — self-contained HS256 JWT (jjwt), 30 min TTL. Validated by
+  signature only; no database lookup per request. Claims: `sub` (user id),
+  `username`, `iss`, `iat`, `exp`, `jti`.
+- **Refresh token** — opaque 256-bit random value, 14 day TTL. Stored **hashed**
+  (SHA-256) in `refresh_tokens`; the raw value exists only on the client.
+
+Key classes: `TokenService` (abstraction — the only seam token consumers see;
+`JwtTokenService` is the jjwt/MySQL implementation), `JwtAuthenticationFilter`
+(bearer-token authentication), `SecurityConfig` (filter chain),
+`DbUserDetailsService` + `UserPrincipal` (password login path via
+`AuthenticationManager`), `AuthService`/`AuthController` (use-cases + REST).
+
+### Refresh-token rotation & reuse detection
+
+Every `/auth/refresh` **rotates**: the presented token is revoked
+(`revoked_at`), a new one is issued, and the two are linked (`replaced_by_id`).
+Presenting an already-revoked token is treated as theft: **every live token of
+that user is revoked** and the request fails with `REFRESH_TOKEN_REUSED`.
+Logout revokes the presented token and is idempotent.
+
+### JWT lifecycle
+
+```
+issue (login)          → HS256-signed, exp = now + access-token-ttl
+validate (per request) → signature + iss + exp checked in JwtAuthenticationFilter
+expire                 → 100010 TOKEN_EXPIRED → frontend silently refreshes
+```
+
+Signing key: `app.security.jwt.secret` (env `JWT_SECRET`, ≥ 32 bytes — the
+application refuses to start otherwise).
+
+### Login flow (sequence)
+
+```mermaid
+sequenceDiagram
+    participant W as Web (Vue)
+    participant S as Server (Spring Security)
+    participant DB as MySQL
+
+    W->>S: POST /api/v1/auth/login {usernameOrEmail, password}
+    S->>DB: load user (username OR email)
+    S->>S: BCrypt verify + account-state checks
+    S->>DB: insert refresh_tokens (SHA-256 hash), update last_login_*
+    S-->>W: {accessToken (JWT), refreshToken, expiresIn, user}
+    W->>W: tokenStorage.set(...)
+
+    W->>S: GET /api/v1/... (Authorization: Bearer <access>)
+    S->>S: verify JWT signature — no DB hit
+    S-->>W: 200
+
+    Note over W,S: access token expires
+    W->>S: GET /api/v1/... → 401 code 100010
+    W->>S: POST /api/v1/auth/refresh {refreshToken}
+    S->>DB: hash lookup → revoke old, insert new (rotation)
+    S-->>W: new {accessToken, refreshToken}
+    W->>S: replay original request
+
+    W->>S: POST /api/v1/auth/logout {refreshToken}
+    S->>DB: revoke token
+    S-->>W: 200 (idempotent)
+```
+
+### Security decisions
+
+| Decision | Rationale |
+| --- | --- |
+| CSRF disabled | Pure bearer-token API — no cookie-based session to forge |
+| CORS via `CorsConfigurationSource` bean | Security's CorsFilter runs before auth: 401s carry CORS headers, preflights need no token |
+| Refresh tokens hashed at rest | A leaked DB dump cannot be replayed |
+| Login error is always `INVALID_CREDENTIALS` for bad user *or* bad password | No account enumeration |
+| Errors funnel through `GlobalExceptionHandler` | Entry point / denied handler delegate via `HandlerExceptionResolver` — one envelope builder |
+| Snowflake ids serialized as strings in DTOs | Exceed JS safe-integer range |
+| `@EnableMethodSecurity` on now | RBAC phase adopts `@PreAuthorize` without config changes |
+
+Extension points reserved (schema and/or seams exist, no implementation):
+RBAC (`roles`/`permissions` tables + empty authorities in `UserPrincipal`),
+OAuth2/third-party login and MFA (additional issuance paths behind
+`TokenService`), email verification & password reset (account-state +
+`app.security.password-policy` config), "sign out everywhere"
+(`TokenService.revokeAllForUser`).
+
+### Auth error codes (100000–109999)
+
+| Code | Meaning | HTTP |
+| --- | --- | --- |
+| 100000 | Invalid credentials | 401 |
+| 100001 | Account locked | 403 |
+| 100002 | Account disabled | 403 |
+| 100010 | Access token expired | 401 |
+| 100011 | Access token invalid | 401 |
+| 100020 | Refresh token invalid | 401 |
+| 100021 | Refresh token expired | 401 |
+| 100022 | Refresh token reused (rotation violation) | 401 |
+
+### Frontend auth infrastructure
+
+- `api/token-storage.ts` — sole owner of token persistence (localStorage today;
+  designed to swap to httpOnly-cookie refresh + in-memory access token later).
+- `api/http.ts` — attaches `Authorization`; on 401 performs a **single-flight**
+  refresh and replays the failed request; unrecoverable sessions trigger the
+  handler registered by the router (redirect to `/login`).
+- `stores/auth.ts` — user identity + login/logout/session-restore actions.
+- `router/guards.ts` — `requiresAuth` / `guestOnly` meta flags enforced in
+  `beforeEach`; `roles`/`permissions` meta reserved for the RBAC phase.
+
 ## Roadmap
 
-1. **Phase 1 — Foundation** (this phase): plumbing, standards, design system, zero business features.
-2. **Phase 2 — Identity**: Spring Security 7 + JWT (access/refresh), user schema (V1 migration), frontend auth flow + route guards.
+1. **Phase 1 — Foundation** ✅: plumbing, standards, design system, zero business features.
+2. **Phase 2 — Identity** ✅: Spring Security 7 + JWT (access/refresh), user schema (V1 migration), frontend auth flow + route guards.
 3. **Phase 3 — Domain design, then core workspace**: written domain model first, then the non-AI workspace skeleton.
 4. **Phase 4 — AI integration**: `AiService` abstraction, SSE streaming chat, Redis, WebSocket where truly bidirectional.
 5. **Phase 5 — Production**: Docker, CI/CD, observability, security hardening, OSS storage.

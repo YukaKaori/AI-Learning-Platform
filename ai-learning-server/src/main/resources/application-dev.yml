@@ -9,6 +9,12 @@ logging:
   level:
     com.yuka.ailearningserver: debug
 
+app:
+  security:
+    jwt:
+      # Local development only — never reuse outside this machine. Prod requires JWT_SECRET.
+      secret: ${JWT_SECRET:dev-only-jwt-secret-change-me-0123456789abcdef}
+
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl

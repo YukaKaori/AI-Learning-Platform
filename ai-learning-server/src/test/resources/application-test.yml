@@ -7,3 +7,8 @@ spring:
     password: ""
   flyway:
     enabled: false
+
+app:
+  security:
+    jwt:
+      secret: test-only-jwt-secret-0123456789abcdefghijklmn

@@ -27,6 +27,23 @@ export default {
       serverTime: '服务器时间',
     },
   },
+  auth: {
+    login: {
+      title: '登录',
+      subtitle: '登录以继续使用你的 AI 学习空间',
+      usernameOrEmail: '用户名或邮箱',
+      password: '密码',
+      submit: '登录',
+      required: '请填写完整的登录信息',
+    },
+    logout: '退出登录',
+    error: {
+      invalidCredentials: '用户名或密码错误',
+      accountLocked: '账号已被锁定，请联系管理员',
+      accountDisabled: '账号已被停用，请联系管理员',
+      sessionExpired: '登录已过期，请重新登录',
+    },
+  },
   error: {
     network: '网络连接失败，请稍后重试',
     timeout: '请求超时，请稍后重试',

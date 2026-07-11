@@ -45,6 +45,28 @@ CREATE DATABASE IF NOT EXISTS ai_learning
   DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
+## Authentication
+
+Stateless JWT authentication (Phase 2). Sign in at `/login`; on the dev profile a
+seed account is created automatically: **`demo` / `Demo123456`**.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /api/v1/auth/login` | Username **or** email + password → access + refresh token |
+| `POST /api/v1/auth/refresh` | Rotate the refresh token, get a new pair |
+| `POST /api/v1/auth/logout` | Revoke the refresh token |
+| `GET /api/v1/auth/me` | Current user (requires `Authorization: Bearer <token>`) |
+
+Environment variables (prod requires all; dev has local defaults):
+
+| Variable | Purpose |
+| --- | --- |
+| `DB_URL`, `DB_USERNAME`, `DB_PASSWORD` | Database connection |
+| `JWT_SECRET` | HMAC-SHA256 signing key, **at least 32 bytes** |
+
+The full security architecture (token lifecycles, rotation, error codes, sequence
+diagram) is documented in [`docs/architecture.md`](docs/architecture.md).
+
 ## Verification
 
 | Check | Command |
