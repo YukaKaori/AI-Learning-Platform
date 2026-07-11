@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: ai-learning-server
+  profiles:
+    # Local development unless a profile is set explicitly (prod sets SPRING_PROFILES_ACTIVE=prod).
+    default: dev
+  flyway:
+    locations: classpath:db/migration
+
+server:
+  port: 8080
+  shutdown: graceful
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    banner: false
+    db-config:
+      id-type: assign_id
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+app:
+  cors:
+    allowed-origins:
+      - http://localhost:5173

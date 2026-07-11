@@ -1,0 +1,40 @@
+/**
+ * Bridges Element Plus onto our design tokens so EP components inherit the
+ * product's visual language instead of the default admin-dashboard look.
+ * Extend the mapping here when a new EP component doesn't match the tokens.
+ */
+:root,
+html.dark {
+  --el-color-primary: var(--color-primary);
+  --el-color-primary-light-3: var(--color-primary-hover);
+  --el-color-primary-dark-2: var(--color-primary-active);
+  --el-color-primary-light-9: var(--color-primary-soft);
+
+  --el-color-success: var(--color-success);
+  --el-color-warning: var(--color-warning);
+  --el-color-danger: var(--color-danger);
+  --el-color-error: var(--color-danger);
+
+  --el-bg-color: var(--color-surface);
+  --el-bg-color-page: var(--color-bg);
+  --el-fill-color-light: var(--color-surface-hover);
+
+  --el-text-color-primary: var(--color-text);
+  --el-text-color-regular: var(--color-text-secondary);
+  --el-text-color-secondary: var(--color-text-tertiary);
+  --el-text-color-placeholder: var(--color-text-tertiary);
+
+  --el-border-color: var(--color-border);
+  --el-border-color-light: var(--color-border);
+  --el-border-color-lighter: var(--color-border);
+
+  --el-border-radius-base: var(--radius-md);
+  --el-border-radius-small: var(--radius-sm);
+  --el-border-radius-round: var(--radius-full);
+
+  --el-font-family: var(--font-sans);
+  --el-font-size-base: var(--text-base);
+
+  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow-light: var(--shadow-sm);
+}
