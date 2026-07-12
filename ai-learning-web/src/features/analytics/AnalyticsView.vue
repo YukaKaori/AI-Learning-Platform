@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppCard, AppIcon, AppPageHeader, AppTooltip } from '@/components'
+import { AppButton, AppCard, AppEmpty, AppIcon, AppLoading, AppPageHeader, AppTooltip } from '@/components'
 import { useDuration } from '@/composables/useDuration'
 import { accentColor } from '@/features/subjects/types'
+import { generateWeakPoints, generateWeeklySummary } from '@/api/modules/ai'
 import { HEATMAP_MAX, heatmap, subjectShares, summary, weeklyActivity } from './mock'
 
 const { t, d } = useI18n()
@@ -20,6 +21,47 @@ function heatCellColor(minutes: number): string {
 }
 
 const heatLegendSteps = [0, 0.25, 0.5, 0.75, 1]
+
+// --- AI insights ------------------------------------------------------------
+// Reuses the existing /v1/ai/analytics/* endpoints — the (still mock) stats
+// snapshot is sent as a client-supplied text field, same pattern as the
+// Subject-page AI actions (see docs/ai-engine.md for the scoping note).
+
+const insightsLoading = ref(false)
+const insightsError = ref(false)
+const weeklySummaryText = ref<string | null>(null)
+const weakPointsText = ref<string | null>(null)
+const hasInsights = computed(() => weeklySummaryText.value !== null && weakPointsText.value !== null)
+
+function statsSnapshotText(): string {
+  return [
+    t('analytics.ai.snapshotStudyTime', { time: formatMinutes(summary.weekMinutes), delta: summary.weekDelta }),
+    t('analytics.ai.snapshotStreak', { n: summary.streakDays }),
+    t('analytics.ai.snapshotCompletion', { n: summary.taskCompletion }),
+    t('analytics.ai.snapshotAiUsage', { n: summary.aiChatsThisWeek }),
+    `${t('analytics.ai.snapshotDaily')}: ${weeklyActivity.map((day) => formatMinutes(day.minutes)).join(', ')}`,
+    `${t('analytics.ai.snapshotSubjects')}: ${subjectShares
+      .map((share) => `${share.subject.name} ${formatMinutes(share.minutes)}`)
+      .join(', ')}`,
+  ].join('\n')
+}
+
+async function generateInsights() {
+  if (insightsLoading.value) return
+  insightsLoading.value = true
+  insightsError.value = false
+  try {
+    const snapshot = statsSnapshotText()
+    const [weekly, weak] = await Promise.all([generateWeeklySummary(snapshot), generateWeakPoints(snapshot)])
+    weeklySummaryText.value = weekly.content
+    weakPointsText.value = weak.content
+  } catch (error) {
+    console.error(error)
+    insightsError.value = true
+  } finally {
+    insightsLoading.value = false
+  }
+}
 </script>
 
 <template>
@@ -131,6 +173,44 @@ const heatLegendSteps = [0, 0.25, 0.5, 0.75, 1]
           >
             <span class="heat-cell" :style="{ backgroundColor: heatCellColor(cell.minutes) }"></span>
           </AppTooltip>
+        </div>
+      </div>
+    </AppCard>
+
+    <AppCard variant="flat" class="chart-card insights-card">
+      <div class="insights-head">
+        <div>
+          <h2 class="chart-title">{{ t('analytics.ai.title') }}</h2>
+          <p class="chart-desc">{{ t('analytics.ai.desc') }}</p>
+        </div>
+        <AppButton
+          size="sm"
+          variant="soft"
+          icon-left="sparkles"
+          :loading="insightsLoading"
+          @click="generateInsights"
+        >
+          {{ hasInsights ? t('analytics.ai.regenerate') : t('analytics.ai.generate') }}
+        </AppButton>
+      </div>
+
+      <AppLoading v-if="insightsLoading" :label="t('analytics.ai.generating')" />
+      <p v-else-if="insightsError" class="insights-error">{{ t('analytics.ai.error') }}</p>
+      <AppEmpty v-else-if="!hasInsights" :title="t('analytics.ai.empty')" />
+      <div v-else class="insights-grid">
+        <div class="insight-block">
+          <h3 class="insight-title">
+            <AppIcon name="trending-up" size="sm" />
+            {{ t('analytics.ai.weeklySummary') }}
+          </h3>
+          <p class="insight-text">{{ weeklySummaryText }}</p>
+        </div>
+        <div class="insight-block">
+          <h3 class="insight-title">
+            <AppIcon name="target" size="sm" />
+            {{ t('analytics.ai.weakPoints') }}
+          </h3>
+          <p class="insight-text">{{ weakPointsText }}</p>
         </div>
       </div>
     </AppCard>
@@ -337,12 +417,61 @@ const heatLegendSteps = [0, 0.25, 0.5, 0.75, 1]
   border-radius: 2px;
 }
 
+/* AI insights */
+.insights-card {
+  margin-top: var(--space-5);
+}
+
+.insights-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.insights-error {
+  margin: 0;
+  padding: var(--space-4) 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.insights-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-5);
+}
+
+.insight-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.insight-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
 @media (max-width: 900px) {
   .stat-row {
     grid-template-columns: repeat(2, 1fr);
   }
 
   .two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .insights-grid {
     grid-template-columns: 1fr;
   }
 }
