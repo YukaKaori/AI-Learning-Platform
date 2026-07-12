@@ -6,6 +6,11 @@ spring:
     default: dev
   flyway:
     locations: classpath:db/migration
+  threads:
+    virtual:
+      # AI streaming holds a thread open for the duration of a DeepSeek response;
+      # virtual threads make that cheap instead of pinning a platform thread per chat.
+      enabled: true
 
 server:
   port: 8080
@@ -41,3 +46,16 @@ app:
       refresh-token-ttl: 14d
     password-policy:
       min-length: 8
+  ai:
+    provider: deepseek
+    max-prompt-chars: 24000
+    deepseek:
+      # Secret comes from the environment only — never hardcoded.
+      api-key: ${DEEPSEEK_API_KEY:}
+      base-url: https://api.deepseek.com
+      model: deepseek-chat
+      temperature: 0.7
+      top-p: 0.95
+      max-tokens: 2048
+      timeout: 60s
+      streaming-enabled: true

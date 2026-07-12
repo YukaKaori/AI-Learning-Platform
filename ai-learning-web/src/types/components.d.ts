@@ -28,7 +28,6 @@ declare module 'vue' {
     AppSkeleton: typeof import('./../components/AppSkeleton.vue')['default']
     AppTag: typeof import('./../components/AppTag.vue')['default']
     AppTooltip: typeof import('./../components/AppTooltip.vue')['default']
-    ElButton: typeof import('element-plus/es')['ElButton']
     ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDrawer: typeof import('element-plus/es')['ElDrawer']

@@ -1,22 +1,44 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { AppButton, AppIcon, AppSearch, AppTooltip } from '@/components'
-import { getSubject } from '@/features/subjects/mock'
+import { AppButton, AppDialog, AppIcon, AppSearch, AppTooltip } from '@/components'
+import {
+  archiveConversation,
+  createConversation,
+  deleteConversation,
+  getConversation,
+  listConversations,
+  renameConversation,
+} from '@/api/modules/ai'
+import { mockSubjects } from '@/features/subjects/mock'
 import { accentColor } from '@/features/subjects/types'
-import { mockConversations } from './mock'
-import { MockChatProvider, type ChatProvider } from './provider'
+import { ServerSseChatProvider, type ChatProvider } from './provider'
 import type { ChatMessage, Conversation } from './types'
 
 const { t, d } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
-// Local, mutable copy of the demo conversations — persistence is a later phase.
-const conversations = ref<Conversation[]>(
-  mockConversations.map((c) => ({ ...c, messages: [...c.messages] })),
-)
+const conversations = ref<Conversation[]>([])
+
+async function loadConversations() {
+  const summaries = await listConversations()
+  conversations.value = summaries
+    .filter((c) => !c.archived)
+    .map((c) => ({
+      id: c.id,
+      title: c.title,
+      subjectName: c.subjectName ?? undefined,
+      archived: c.archived,
+      updatedAt: c.updatedAt,
+      messages: [],
+    }))
+}
+
+onMounted(() => {
+  loadConversations().catch((error) => console.error(error))
+})
 
 const search = ref('')
 const filtered = computed(() => {
@@ -26,7 +48,9 @@ const filtered = computed(() => {
 })
 
 const activeId = ref<string | null>(
-  typeof route.params.conversationId === 'string' ? route.params.conversationId : null,
+  typeof route.params.conversationId === 'string' && route.params.conversationId
+    ? route.params.conversationId
+    : null,
 )
 const active = computed(() => conversations.value.find((c) => c.id === activeId.value) ?? null)
 
@@ -37,18 +61,41 @@ watch(
   },
 )
 
+// Lazily load full message history the first time a conversation is opened.
+const loadedDetail = new Set<string>()
+watch(
+  activeId,
+  async (id) => {
+    if (!id || loadedDetail.has(id)) return
+    const conversation = conversations.value.find((c) => c.id === id)
+    if (!conversation) return
+    loadedDetail.add(id)
+    try {
+      const detail = await getConversation(id)
+      conversation.title = detail.title
+      conversation.messages = detail.messages.map((message) => ({
+        id: message.id,
+        role: message.role === 'assistant' ? 'assistant' : 'user',
+        content: message.content,
+        createdAt: message.createdAt,
+      }))
+    } catch (error) {
+      loadedDetail.delete(id)
+      console.error(error)
+    }
+  },
+  { immediate: true },
+)
+
 function select(id: string | null) {
   router.replace({ name: 'ai-tutor', params: { conversationId: id ?? '' } })
 }
 
-// --- Provider seam: swap MockChatProvider for the server-SSE provider in the AI phase.
-const provider: ChatProvider = new MockChatProvider((question) =>
-  t('aiTutor.mockReply', { question }),
-)
-
+// --- Provider seam: ServerSseChatProvider streams real replies from the backend's AiService.
 const draft = ref('')
 const busy = ref(false)
 const thread = ref<HTMLElement | null>(null)
+let activeProvider: ChatProvider | null = null
 
 async function scrollToEnd() {
   await nextTick()
@@ -63,20 +110,26 @@ async function send() {
   draft.value = ''
 
   let conversation = active.value
+  let isNewConversation = false
   if (!conversation) {
+    const created = await createConversation({})
     conversation = {
-      id: `conv-${Date.now()}`,
-      title: content.length > 24 ? `${content.slice(0, 24)}…` : content,
-      updatedAt: Date.now(),
+      id: created.id,
+      title: created.title,
+      subjectName: created.subjectName ?? undefined,
+      archived: false,
+      updatedAt: created.updatedAt,
       messages: [],
     }
     conversations.value.unshift(conversation)
-    select(conversation.id)
-    activeId.value = conversation.id
+    loadedDetail.add(created.id)
+    select(created.id)
+    activeId.value = created.id
+    isNewConversation = true
   }
 
   conversation.messages.push({
-    id: `msg-${Date.now()}`,
+    id: `local-${Date.now()}`,
     role: 'user',
     content,
     createdAt: Date.now(),
@@ -85,7 +138,7 @@ async function send() {
   await scrollToEnd()
 
   const reply: ChatMessage = {
-    id: `msg-${Date.now() + 1}`,
+    id: `local-${Date.now() + 1}`,
     role: 'assistant',
     content: '',
     createdAt: Date.now(),
@@ -93,16 +146,36 @@ async function send() {
   }
   conversation.messages.push(reply)
   busy.value = true
+
+  const provider = new ServerSseChatProvider(conversation.id, { subjectName: conversation.subjectName })
+  activeProvider = provider
   try {
     for await (const chunk of provider.streamReply(conversation.messages)) {
       reply.content += chunk
       await scrollToEnd()
     }
+  } catch (error) {
+    if (!reply.content) {
+      reply.content = t('aiTutor.error')
+    }
+    console.error(error)
   } finally {
     reply.streaming = false
     conversation.updatedAt = Date.now()
     busy.value = false
+    activeProvider = null
+    if (isNewConversation) {
+      getConversation(conversation.id)
+        .then((detail) => {
+          if (conversation) conversation.title = detail.title
+        })
+        .catch((error) => console.error(error))
+    }
   }
+}
+
+function stopGenerating() {
+  activeProvider?.cancel?.()
 }
 
 function onKeydown(event: KeyboardEvent) {
@@ -119,8 +192,51 @@ function useSuggestion(key: (typeof suggestionKeys)[number]) {
 }
 
 function conversationAccent(conversation: Conversation): string {
-  const subject = conversation.subjectId ? getSubject(conversation.subjectId) : undefined
+  const subject = conversation.subjectName
+    ? mockSubjects.find((s) => s.name === conversation.subjectName)
+    : undefined
   return subject ? accentColor(subject.accent) : 'var(--color-muted)'
+}
+
+async function renameConversationAction(conversation: Conversation) {
+  const nextTitle = window.prompt(t('aiTutor.renamePrompt'), conversation.title)
+  if (!nextTitle || !nextTitle.trim() || nextTitle.trim() === conversation.title) return
+  try {
+    await renameConversation(conversation.id, nextTitle.trim())
+    conversation.title = nextTitle.trim()
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+async function archiveConversationAction(conversation: Conversation) {
+  try {
+    await archiveConversation(conversation.id, true)
+    conversations.value = conversations.value.filter((c) => c.id !== conversation.id)
+    if (activeId.value === conversation.id) select(null)
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const deleteTarget = ref<Conversation | null>(null)
+
+function requestDelete(conversation: Conversation) {
+  deleteTarget.value = conversation
+}
+
+async function confirmDelete() {
+  const conversation = deleteTarget.value
+  if (!conversation) return
+  try {
+    await deleteConversation(conversation.id)
+    conversations.value = conversations.value.filter((c) => c.id !== conversation.id)
+    if (activeId.value === conversation.id) select(null)
+  } catch (error) {
+    console.error(error)
+  } finally {
+    deleteTarget.value = null
+  }
 }
 </script>
 
@@ -139,16 +255,45 @@ function conversationAccent(conversation: Conversation): string {
       <p v-if="filtered.length === 0" class="conv-empty">{{ t('aiTutor.listEmpty') }}</p>
       <ul v-else class="conv-list">
         <li v-for="conv in filtered" :key="conv.id">
-          <button
-            type="button"
-            class="conv-item"
-            :class="{ active: conv.id === activeId }"
-            @click="select(conv.id)"
-          >
-            <span class="conv-dot" :style="{ backgroundColor: conversationAccent(conv) }"></span>
-            <span class="conv-item-title">{{ conv.title }}</span>
-            <span class="conv-item-date">{{ d(conv.updatedAt, 'short') }}</span>
-          </button>
+          <div class="conv-row" :class="{ active: conv.id === activeId }">
+            <button type="button" class="conv-item" @click="select(conv.id)">
+              <span class="conv-dot" :style="{ backgroundColor: conversationAccent(conv) }"></span>
+              <span class="conv-item-title">{{ conv.title }}</span>
+              <span class="conv-item-date">{{ d(conv.updatedAt, 'short') }}</span>
+            </button>
+            <div class="conv-actions">
+              <AppTooltip :content="t('aiTutor.rename')">
+                <AppButton
+                  variant="ghost"
+                  tone="secondary"
+                  size="sm"
+                  icon-left="pencil"
+                  :aria-label="t('aiTutor.rename')"
+                  @click.stop="renameConversationAction(conv)"
+                />
+              </AppTooltip>
+              <AppTooltip :content="t('aiTutor.archive')">
+                <AppButton
+                  variant="ghost"
+                  tone="secondary"
+                  size="sm"
+                  icon-left="inbox"
+                  :aria-label="t('aiTutor.archive')"
+                  @click.stop="archiveConversationAction(conv)"
+                />
+              </AppTooltip>
+              <AppTooltip :content="t('aiTutor.delete')">
+                <AppButton
+                  variant="ghost"
+                  tone="danger"
+                  size="sm"
+                  icon-left="trash"
+                  :aria-label="t('aiTutor.delete')"
+                  @click.stop="requestDelete(conv)"
+                />
+              </AppTooltip>
+            </div>
+          </div>
         </li>
       </ul>
     </aside>
@@ -216,10 +361,21 @@ function conversationAccent(conversation: Conversation): string {
               />
             </AppTooltip>
             <AppButton
+              v-if="busy"
+              variant="soft"
+              tone="secondary"
+              size="sm"
+              icon-left="close"
+              :aria-label="t('aiTutor.stop')"
+              @click="stopGenerating"
+            >
+              {{ t('aiTutor.stop') }}
+            </AppButton>
+            <AppButton
+              v-else
               size="sm"
               icon-left="send"
               :disabled="!draft.trim()"
-              :loading="busy"
               :aria-label="t('aiTutor.input.send')"
               @click="send"
             />
@@ -227,10 +383,24 @@ function conversationAccent(conversation: Conversation): string {
         </div>
         <p class="composer-hint">
           <span>{{ t('aiTutor.input.hint') }}</span>
-          <span class="phase-note">{{ t('aiTutor.phaseNote') }}</span>
         </p>
       </div>
     </section>
+
+    <AppDialog
+      :model-value="deleteTarget !== null"
+      :title="t('aiTutor.deleteConfirm.title')"
+      width="420px"
+      @update:model-value="(open) => { if (!open) deleteTarget = null }"
+    >
+      <p>{{ t('aiTutor.deleteConfirm.body', { title: deleteTarget?.title ?? '' }) }}</p>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="deleteTarget = null">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton tone="danger" @click="confirmDelete">{{ t('common.delete') }}</AppButton>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -285,27 +455,35 @@ function conversationAccent(conversation: Conversation): string {
   overflow-y: auto;
 }
 
+.conv-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-md);
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.conv-row:hover,
+.conv-row.active {
+  background-color: var(--color-surface-hover);
+}
+
+.conv-row.active {
+  background-color: var(--color-primary-soft);
+}
+
 .conv-item {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   padding: var(--space-2) var(--space-2);
   border: none;
-  border-radius: var(--radius-md);
   background: transparent;
   font-family: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color var(--duration-fast) var(--ease-out);
-}
-
-.conv-item:hover {
-  background-color: var(--color-surface-hover);
-}
-
-.conv-item.active {
-  background-color: var(--color-primary-soft);
 }
 
 .conv-dot {
@@ -325,7 +503,7 @@ function conversationAccent(conversation: Conversation): string {
   white-space: nowrap;
 }
 
-.conv-item.active .conv-item-title {
+.conv-row.active .conv-item-title {
   color: var(--color-primary);
   font-weight: 500;
 }
@@ -335,6 +513,20 @@ function conversationAccent(conversation: Conversation): string {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-tertiary);
+}
+
+.conv-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-right: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.conv-row:hover .conv-actions,
+.conv-row.active .conv-actions {
+  opacity: 1;
 }
 
 /* Thread */
@@ -546,16 +738,12 @@ function conversationAccent(conversation: Conversation): string {
 
 .composer-hint {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: var(--space-4);
   max-width: 760px;
   margin: var(--space-2) auto 0;
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
-}
-
-.phase-note {
-  text-align: right;
 }
 
 @media (max-width: 900px) {

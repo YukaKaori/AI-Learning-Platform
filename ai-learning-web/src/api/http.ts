@@ -131,6 +131,25 @@ export const api = {
     unwrap<T>(http.post<ApiResponse<T>>(url, body, config)),
   put: <T>(url: string, body?: unknown, config?: AxiosRequestConfig) =>
     unwrap<T>(http.put<ApiResponse<T>>(url, body, config)),
+  patch: <T>(url: string, body?: unknown, config?: AxiosRequestConfig) =>
+    unwrap<T>(http.patch<ApiResponse<T>>(url, body, config)),
   delete: <T>(url: string, config?: AxiosRequestConfig) =>
     unwrap<T>(http.delete<ApiResponse<T>>(url, config)),
+}
+
+/**
+ * For the one non-axios caller (the AI Tutor's SSE fetch, which needs a raw
+ * `ReadableStream` axios can't give it): rotates the refresh token via the
+ * same single-flight logic the 401 interceptor uses, so a 401 mid-stream is
+ * recovered the same way a normal API call's 401 would be.
+ */
+export async function refreshTokenAfterUnauthorized(): Promise<string> {
+  try {
+    await ensureRefreshed()
+  } catch (error) {
+    tokenStorage.clear()
+    onSessionExpired?.()
+    throw error
+  }
+  return tokenStorage.getAccessToken() ?? ''
 }

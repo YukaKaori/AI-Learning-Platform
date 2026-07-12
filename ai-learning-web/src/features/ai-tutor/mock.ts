@@ -10,7 +10,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-1',
     title: '梯度消失是怎么发生的？',
-    subjectId: 'sub-ml',
+    subjectName: '机器学习基础',
     updatedAt: now - 3 * HOUR,
     messages: [
       {
@@ -31,7 +31,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-2',
     title: 'ばかりに 和 だけに 的区别',
-    subjectId: 'sub-jp',
+    subjectName: '日语 N2',
     updatedAt: now - DAY,
     messages: [
       {
@@ -52,7 +52,7 @@ export const mockConversations: Conversation[] = [
   {
     id: 'conv-3',
     title: '帮我规划算法学习路径',
-    subjectId: 'sub-algo',
+    subjectName: '数据结构与算法',
     updatedAt: now - 2 * DAY,
     messages: [
       {

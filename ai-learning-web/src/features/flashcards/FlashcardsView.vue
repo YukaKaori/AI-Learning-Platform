@@ -1,16 +1,73 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppBadge, AppButton, AppCard, AppDialog, AppEmpty, AppPageHeader } from '@/components'
+import { AppBadge, AppButton, AppCard, AppDialog, AppEmpty, AppInput, AppPageHeader, AppTooltip } from '@/components'
+import {
+  createCard,
+  createDeck,
+  deleteCard as apiDeleteCard,
+  deleteDeck as apiDeleteDeck,
+  listCards,
+  listDecks,
+  updateCard,
+  updateDeck,
+} from '@/api/modules/flashcard'
+import type { FlashcardDeckDto, FlashcardDto } from '@/api/modules/flashcard'
 import { getSubject } from '@/features/subjects/mock'
 import { accentColor } from '@/features/subjects/types'
-import { cardsOf, mockDecks, totalDue } from './mock'
 
 const { t } = useI18n()
 
-const selectedDeckId = ref(mockDecks[0]?.id ?? '')
-const selectedDeck = computed(() => mockDecks.find((d) => d.id === selectedDeckId.value))
-const cards = computed(() => cardsOf(selectedDeckId.value))
+// --- Decks ------------------------------------------------------------------
+
+const decks = ref<FlashcardDeckDto[]>([])
+const decksLoaded = ref(false)
+const selectedDeckId = ref<string | null>(null)
+const selectedDeck = computed(() => decks.value.find((d) => d.id === selectedDeckId.value) ?? null)
+
+async function loadDecks() {
+  const list = await listDecks()
+  decks.value = list
+  decksLoaded.value = true
+  if (!selectedDeckId.value && list.length > 0) {
+    selectedDeckId.value = list[0]!.id
+  }
+}
+
+onMounted(() => {
+  loadDecks().catch((error) => console.error(error))
+})
+
+function deckAccent(subjectId: string | null): string {
+  const subject = subjectId ? getSubject(subjectId) : undefined
+  return subject ? accentColor(subject.accent) : 'var(--color-muted)'
+}
+
+// --- Cards, lazily loaded the first time a deck is selected ----------------
+
+const deckCards = reactive(new Map<string, FlashcardDto[]>())
+const loadedDeckIds = new Set<string>()
+const cardsLoading = ref(false)
+const cards = computed(() => (selectedDeckId.value ? (deckCards.get(selectedDeckId.value) ?? []) : []))
+
+watch(
+  selectedDeckId,
+  async (id) => {
+    if (!id || loadedDeckIds.has(id)) return
+    loadedDeckIds.add(id)
+    cardsLoading.value = true
+    try {
+      const list = await listCards(id)
+      deckCards.set(id, list)
+    } catch (error) {
+      loadedDeckIds.delete(id)
+      console.error(error)
+    } finally {
+      cardsLoading.value = false
+    }
+  },
+  { immediate: true },
+)
 
 // Review-mode preview: flip through the selected deck's cards.
 const reviewOpen = ref(false)
@@ -28,24 +85,161 @@ function nextCard() {
   reviewIndex.value = (reviewIndex.value + 1) % Math.max(cards.value.length, 1)
 }
 
-function deckAccent(subjectId?: string): string {
-  const subject = subjectId ? getSubject(subjectId) : undefined
-  return subject ? accentColor(subject.accent) : 'var(--color-muted)'
-}
-
 const stats = computed(() => [
-  { key: 'total', value: mockDecks.reduce((sum, d) => sum + d.cardCount, 0) },
-  { key: 'dueToday', value: totalDue() },
+  { key: 'total', value: decks.value.reduce((sum, d) => sum + d.cardCount, 0) },
+  { key: 'dueToday', value: decks.value.reduce((sum, d) => sum + d.dueCount, 0) },
   { key: 'reviewed', value: 1284 },
   { key: 'retention', value: '92%' },
 ])
+
+// --- Deck CRUD ----------------------------------------------------------------
+
+interface DeckFormState {
+  mode: 'create' | 'edit'
+  id?: string
+  name: string
+  description: string
+}
+
+const deckForm = ref<DeckFormState | null>(null)
+const deckFormSaving = ref(false)
+
+function openCreateDeck() {
+  deckForm.value = { mode: 'create', name: '', description: '' }
+}
+
+function openEditDeck(deck: FlashcardDeckDto) {
+  deckForm.value = { mode: 'edit', id: deck.id, name: deck.name, description: deck.description ?? '' }
+}
+
+async function submitDeckForm() {
+  const form = deckForm.value
+  if (!form || !form.name.trim() || deckFormSaving.value) return
+  deckFormSaving.value = true
+  try {
+    if (form.mode === 'create') {
+      const created = await createDeck({
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+      })
+      decks.value.unshift(created)
+      selectedDeckId.value = created.id
+    } else if (form.id) {
+      const updated = await updateDeck(form.id, {
+        name: form.name.trim(),
+        description: form.description.trim() || undefined,
+      })
+      const target = decks.value.find((d) => d.id === form.id)
+      if (target) {
+        target.name = updated.name
+        target.description = updated.description
+      }
+    }
+    deckForm.value = null
+  } catch (error) {
+    console.error(error)
+  } finally {
+    deckFormSaving.value = false
+  }
+}
+
+const deckDeleteTarget = ref<FlashcardDeckDto | null>(null)
+
+async function confirmDeleteDeck() {
+  const deck = deckDeleteTarget.value
+  if (!deck) return
+  try {
+    await apiDeleteDeck(deck.id)
+    decks.value = decks.value.filter((d) => d.id !== deck.id)
+    deckCards.delete(deck.id)
+    loadedDeckIds.delete(deck.id)
+    if (selectedDeckId.value === deck.id) {
+      selectedDeckId.value = decks.value[0]?.id ?? null
+    }
+  } catch (error) {
+    console.error(error)
+  } finally {
+    deckDeleteTarget.value = null
+  }
+}
+
+// --- Card CRUD ----------------------------------------------------------------
+
+interface CardFormState {
+  mode: 'create' | 'edit'
+  id?: string
+  front: string
+  back: string
+}
+
+const cardForm = ref<CardFormState | null>(null)
+const cardFormSaving = ref(false)
+
+function openCreateCard() {
+  if (!selectedDeck.value) return
+  cardForm.value = { mode: 'create', front: '', back: '' }
+}
+
+function openEditCard(card: FlashcardDto) {
+  cardForm.value = { mode: 'edit', id: card.id, front: card.front, back: card.back }
+}
+
+async function submitCardForm() {
+  const form = cardForm.value
+  const deck = selectedDeck.value
+  if (!form || !deck || !form.front.trim() || !form.back.trim() || cardFormSaving.value) return
+  cardFormSaving.value = true
+  try {
+    if (form.mode === 'create') {
+      const created = await createCard(deck.id, { front: form.front.trim(), back: form.back.trim() })
+      const list = deckCards.get(deck.id) ?? []
+      list.push(created)
+      deckCards.set(deck.id, list)
+      deck.cardCount += 1
+    } else if (form.id) {
+      const updated = await updateCard(form.id, { front: form.front.trim(), back: form.back.trim() })
+      const list = deckCards.get(deck.id) ?? []
+      const target = list.find((c) => c.id === form.id)
+      if (target) {
+        target.front = updated.front
+        target.back = updated.back
+      }
+    }
+    cardForm.value = null
+  } catch (error) {
+    console.error(error)
+  } finally {
+    cardFormSaving.value = false
+  }
+}
+
+const cardDeleteTarget = ref<FlashcardDto | null>(null)
+
+async function confirmDeleteCard() {
+  const card = cardDeleteTarget.value
+  const deck = selectedDeck.value
+  if (!card || !deck) return
+  try {
+    await apiDeleteCard(card.id)
+    const list = deckCards.get(deck.id) ?? []
+    deckCards.set(
+      deck.id,
+      list.filter((c) => c.id !== card.id),
+    )
+    deck.cardCount = Math.max(0, deck.cardCount - 1)
+  } catch (error) {
+    console.error(error)
+  } finally {
+    cardDeleteTarget.value = null
+  }
+}
 </script>
 
 <template>
   <div class="page">
     <AppPageHeader :title="t('flashcards.title')" :subtitle="t('flashcards.subtitle')">
       <template #actions>
-        <AppButton icon-left="plus" disabled>{{ t('flashcards.newDeck') }}</AppButton>
+        <AppButton icon-left="plus" @click="openCreateDeck">{{ t('flashcards.newDeck') }}</AppButton>
       </template>
     </AppPageHeader>
 
@@ -59,25 +253,48 @@ const stats = computed(() => [
     <div class="layout">
       <section class="decks">
         <h2 class="section-title">{{ t('flashcards.decks') }}</h2>
-        <button
-          v-for="deck in mockDecks"
-          :key="deck.id"
-          type="button"
-          class="deck"
-          :class="{ active: deck.id === selectedDeckId }"
-          @click="selectedDeckId = deck.id"
-        >
-          <span class="deck-bar" :style="{ backgroundColor: deckAccent(deck.subjectId) }"></span>
-          <div class="deck-main">
-            <span class="deck-name">{{ deck.name }}</span>
-            <span class="deck-meta">{{ t('flashcards.cards', { n: deck.cardCount }) }}</span>
-          </div>
-          <AppBadge v-if="deck.dueCount > 0" tone="primary">{{ deck.dueCount }}</AppBadge>
-        </button>
+        <p v-if="decksLoaded && decks.length === 0" class="list-empty">{{ t('flashcards.decksEmpty') }}</p>
+        <ul v-else class="deck-list">
+          <li v-for="deck in decks" :key="deck.id">
+            <div class="deck-row" :class="{ active: deck.id === selectedDeckId }">
+              <button type="button" class="deck-item" @click="selectedDeckId = deck.id">
+                <span class="deck-bar" :style="{ backgroundColor: deckAccent(deck.subjectId) }"></span>
+                <div class="deck-main">
+                  <span class="deck-name">{{ deck.name }}</span>
+                  <span class="deck-meta">{{ t('flashcards.cards', { n: deck.cardCount }) }}</span>
+                </div>
+                <AppBadge v-if="deck.dueCount > 0" tone="primary">{{ deck.dueCount }}</AppBadge>
+              </button>
+              <div class="deck-actions">
+                <AppTooltip :content="t('flashcards.editDeck')">
+                  <AppButton
+                    variant="ghost"
+                    tone="secondary"
+                    size="sm"
+                    icon-left="pencil"
+                    :aria-label="t('flashcards.editDeck')"
+                    @click.stop="openEditDeck(deck)"
+                  />
+                </AppTooltip>
+                <AppTooltip :content="t('flashcards.deleteDeck')">
+                  <AppButton
+                    variant="ghost"
+                    tone="danger"
+                    size="sm"
+                    icon-left="trash"
+                    :aria-label="t('flashcards.deleteDeck')"
+                    @click.stop="deckDeleteTarget = deck"
+                  />
+                </AppTooltip>
+              </div>
+            </div>
+          </li>
+        </ul>
       </section>
 
       <section class="deck-detail">
-        <template v-if="selectedDeck">
+        <AppEmpty v-if="!selectedDeck" :title="t('flashcards.noSelection')" icon="layers" />
+        <template v-else>
           <div class="detail-head">
             <div>
               <h2 class="detail-name">{{ selectedDeck.name }}</h2>
@@ -85,26 +302,55 @@ const stats = computed(() => [
                 {{ selectedDeck.description }}
               </p>
             </div>
-            <AppButton
-              icon-left="play"
-              :disabled="cards.length === 0"
-              @click="reviewOpen = true"
-            >
-              {{ t('flashcards.review.start') }}
-            </AppButton>
+            <div class="detail-actions">
+              <AppButton variant="soft" icon-left="plus" @click="openCreateCard">
+                {{ t('flashcards.addCard') }}
+              </AppButton>
+              <AppButton
+                icon-left="play"
+                :disabled="cards.length === 0"
+                @click="reviewOpen = true"
+              >
+                {{ t('flashcards.review.start') }}
+              </AppButton>
+            </div>
           </div>
 
           <h3 class="list-title">{{ t('flashcards.cardList') }}</h3>
-          <AppEmpty v-if="cards.length === 0" :title="t('flashcards.empty')" icon="layers" />
+          <AppEmpty v-if="!cardsLoading && cards.length === 0" :title="t('flashcards.empty')" icon="layers" />
           <ul v-else class="card-list">
             <li v-for="card in cards" :key="card.id" class="card-row">
-              <div class="card-side">
-                <span class="side-label">{{ t('flashcards.front') }}</span>
-                <span class="side-text">{{ card.front }}</span>
+              <div class="card-content">
+                <div class="card-side">
+                  <span class="side-label">{{ t('flashcards.front') }}</span>
+                  <span class="side-text">{{ card.front }}</span>
+                </div>
+                <div class="card-side">
+                  <span class="side-label">{{ t('flashcards.back') }}</span>
+                  <span class="side-text muted">{{ card.back }}</span>
+                </div>
               </div>
-              <div class="card-side">
-                <span class="side-label">{{ t('flashcards.back') }}</span>
-                <span class="side-text muted">{{ card.back }}</span>
+              <div class="card-actions">
+                <AppTooltip :content="t('flashcards.editCard')">
+                  <AppButton
+                    variant="ghost"
+                    tone="secondary"
+                    size="sm"
+                    icon-left="pencil"
+                    :aria-label="t('flashcards.editCard')"
+                    @click="openEditCard(card)"
+                  />
+                </AppTooltip>
+                <AppTooltip :content="t('flashcards.deleteCard')">
+                  <AppButton
+                    variant="ghost"
+                    tone="danger"
+                    size="sm"
+                    icon-left="trash"
+                    :aria-label="t('flashcards.deleteCard')"
+                    @click="cardDeleteTarget = card"
+                  />
+                </AppTooltip>
               </div>
             </li>
           </ul>
@@ -144,6 +390,104 @@ const stats = computed(() => [
             </AppButton>
           </div>
         </div>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      :model-value="deckForm !== null"
+      :title="deckForm?.mode === 'create' ? t('flashcards.deckDialog.createTitle') : t('flashcards.deckDialog.editTitle')"
+      width="440px"
+      @update:model-value="(open) => { if (!open) deckForm = null }"
+    >
+      <div v-if="deckForm" class="form">
+        <AppInput
+          v-model="deckForm.name"
+          :label="t('flashcards.deckDialog.name')"
+          :placeholder="t('flashcards.deckDialog.namePlaceholder')"
+        />
+        <div class="form-field">
+          <label class="form-label">{{ t('flashcards.deckDialog.description') }}</label>
+          <textarea
+            v-model="deckForm.description"
+            class="form-textarea"
+            rows="3"
+            :placeholder="t('flashcards.deckDialog.descriptionPlaceholder')"
+          ></textarea>
+        </div>
+      </div>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="deckForm = null">{{ t('common.cancel') }}</AppButton>
+        <AppButton :loading="deckFormSaving" :disabled="!deckForm?.name.trim()" @click="submitDeckForm">
+          {{ deckForm?.mode === 'create' ? t('common.create') : t('common.save') }}
+        </AppButton>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      :model-value="deckDeleteTarget !== null"
+      :title="t('flashcards.deckDeleteConfirm.title')"
+      width="420px"
+      @update:model-value="(open) => { if (!open) deckDeleteTarget = null }"
+    >
+      <p>{{ t('flashcards.deckDeleteConfirm.body', { name: deckDeleteTarget?.name ?? '' }) }}</p>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="deckDeleteTarget = null">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton tone="danger" @click="confirmDeleteDeck">{{ t('common.delete') }}</AppButton>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      :model-value="cardForm !== null"
+      :title="cardForm?.mode === 'create' ? t('flashcards.cardDialog.createTitle') : t('flashcards.cardDialog.editTitle')"
+      width="520px"
+      @update:model-value="(open) => { if (!open) cardForm = null }"
+    >
+      <div v-if="cardForm" class="form">
+        <div class="form-field">
+          <label class="form-label">{{ t('flashcards.front') }}</label>
+          <textarea
+            v-model="cardForm.front"
+            class="form-textarea"
+            rows="3"
+            :placeholder="t('flashcards.cardDialog.frontPlaceholder')"
+          ></textarea>
+        </div>
+        <div class="form-field">
+          <label class="form-label">{{ t('flashcards.back') }}</label>
+          <textarea
+            v-model="cardForm.back"
+            class="form-textarea"
+            rows="4"
+            :placeholder="t('flashcards.cardDialog.backPlaceholder')"
+          ></textarea>
+        </div>
+      </div>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="cardForm = null">{{ t('common.cancel') }}</AppButton>
+        <AppButton
+          :loading="cardFormSaving"
+          :disabled="!cardForm?.front.trim() || !cardForm?.back.trim()"
+          @click="submitCardForm"
+        >
+          {{ cardForm?.mode === 'create' ? t('common.create') : t('common.save') }}
+        </AppButton>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      :model-value="cardDeleteTarget !== null"
+      :title="t('flashcards.cardDeleteConfirm.title')"
+      width="420px"
+      @update:model-value="(open) => { if (!open) cardDeleteTarget = null }"
+    >
+      <p>{{ t('flashcards.cardDeleteConfirm.body') }}</p>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="cardDeleteTarget = null">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton tone="danger" @click="confirmDeleteCard">{{ t('common.delete') }}</AppButton>
       </template>
     </AppDialog>
   </div>
@@ -197,35 +541,62 @@ const stats = computed(() => [
   color: var(--color-text-tertiary);
 }
 
+.list-empty {
+  margin: 0;
+  padding: var(--space-6) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
 .decks {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
 }
 
-.deck {
+.deck-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.deck-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-3);
+  gap: var(--space-1);
   border: var(--border-width-sm) solid var(--color-border);
   border-radius: var(--radius-card);
   background-color: var(--color-surface);
-  font-family: inherit;
-  text-align: left;
-  cursor: pointer;
   transition:
     border-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
 }
 
-.deck:hover {
+.deck-row:hover {
   box-shadow: var(--shadow-sm);
 }
 
-.deck.active {
+.deck-row.active {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.deck-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-3);
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .deck-bar {
@@ -256,6 +627,20 @@ const stats = computed(() => [
   color: var(--color-text-tertiary);
 }
 
+.deck-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding-right: var(--space-2);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.deck-row:hover .deck-actions,
+.deck-row.active .deck-actions {
+  opacity: 1;
+}
+
 .deck-detail {
   min-width: 0;
 }
@@ -266,6 +651,13 @@ const stats = computed(() => [
   justify-content: space-between;
   gap: var(--space-4);
   margin-bottom: var(--space-6);
+}
+
+.detail-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
 }
 
 .detail-name {
@@ -301,14 +693,36 @@ const stats = computed(() => [
 }
 
 .card-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: var(--space-4);
   padding: var(--space-4);
 }
 
 .card-row + .card-row {
   border-top: var(--border-width-sm) solid var(--color-border);
+}
+
+.card-content {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.card-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.card-row:hover .card-actions {
+  opacity: 1;
 }
 
 .card-side {
@@ -333,6 +747,50 @@ const stats = computed(() => [
 
 .side-text.muted {
   color: var(--color-text-secondary);
+}
+
+/* Forms */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.form-label {
+  font-size: var(--font-label-size);
+  font-weight: var(--font-label-weight);
+  color: var(--color-text-secondary);
+}
+
+.form-textarea {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-sm) solid var(--color-border);
+  border-radius: var(--radius-input);
+  background-color: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+  resize: vertical;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.form-textarea::placeholder {
+  color: var(--color-text-tertiary);
 }
 
 /* Review preview */
@@ -409,7 +867,16 @@ const stats = computed(() => [
   }
 
   .card-row {
+    flex-direction: column;
+  }
+
+  .card-content {
     grid-template-columns: 1fr;
+  }
+
+  .card-actions {
+    opacity: 1;
+    justify-content: flex-end;
   }
 }
 </style>
