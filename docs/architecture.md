@@ -48,8 +48,12 @@ Business code never talks to a vendor SDK directly. Define the interface in
 `infrastructure/` when the capability is first needed:
 
 - `StorageService` → Aliyun OSS / MinIO / S3 / local
-- `AiService` → Claude / OpenAI / Gemini / DeepSeek / local models
-  (provider implementations + configuration layer + conversation management)
+- AI abstraction → Claude / OpenAI / Gemini / DeepSeek / local models
+  (provider implementations + configuration layer + conversation management).
+  Landed in Phase 6 as `ai/provider/AiProvider.java` (feature-package-local,
+  not `infrastructure/` — the interface has no callers outside the `ai`
+  package) with `DeepSeekProvider` as the sole implementation; see
+  `docs/ai-engine.md`.
 - `NotificationService`, cache, search, MQ — same pattern.
 
 Reserved (do not implement early): Redis, OSS, WebSocket, Elasticsearch, MQ,
@@ -225,10 +229,24 @@ OAuth2/third-party login and MFA (additional issuance paths behind
    abstraction (`AppIcon` over lucide), layout system (header/sidebar/content,
    responsive), accessibility baseline, `docs/design-system.md`. No business modules, no
    AI, no login redesign.
-4. **Phase 4 — Domain design, then core workspace**: written domain model first, then
-   the non-AI workspace skeleton. Premium login experience lands here too.
-5. **Phase 5 — AI integration**: `AiService` abstraction, SSE streaming chat, Redis, WebSocket where truly bidirectional.
-6. **Phase 6 — Production**: Docker, CI/CD, observability, security hardening, OSS storage.
+4. **Phase 4 — Premium authentication & signature welcome experience** ✅: the login +
+   post-auth welcome screens that give the platform its first impression, built on the
+   Phase 2 auth logic (unchanged) and Phase 3 tokens. See `docs/authentication-experience.md`.
+5. **Phase 5 — AI-native workspace shell & product domain** ✅: the full domain model
+   (Subject/Note/FlashcardDeck+Flashcard/LearningTask/StudySession) and every product
+   module (Workspace, Subjects, AI Tutor, Flashcards, Notes, Calendar, Analytics,
+   Profile, Settings) built with realistic mock data and a real (empty) backend schema
+   (V2 migration). AI Tutor ships as a fully real chat UI wired to a swappable
+   `ChatProvider`, streaming a canned reply — the seam Phase 6 fills in. See
+   `docs/product-domain.md`.
+6. **Phase 6 — AI learning engine (DeepSeek integration)** ✅: the `ai` backend package
+   (`AiProvider`/`DeepSeekProvider`, true SSE token streaming over `RestClient` +
+   virtual threads, persisted conversations, the context/prompt pipeline), real CRUD
+   for Notes and Flashcards, and AI actions surfaced across AI Tutor, Notes, Flashcards,
+   Subjects and Analytics. Subjects/Tasks stay mock-data-only this phase — AI context
+   for them is client-supplied, not resolved server-side. See `docs/ai-engine.md`.
+7. **Phase 7 — Production** (not started): Docker, CI/CD, observability, security
+   hardening, OSS storage, real Subject/Task CRUD, spaced-repetition review engine.
 
 ## Git
 

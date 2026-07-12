@@ -28,7 +28,6 @@ const enUS: typeof zhCN = {
     cancel: 'Cancel',
     save: 'Save',
     delete: 'Delete',
-    confirm: 'Confirm',
     create: 'Create',
     theme: {
       label: 'Appearance',
@@ -37,8 +36,6 @@ const enUS: typeof zhCN = {
       system: 'System',
     },
     viewAll: 'View all',
-    comingSoon: 'Coming soon',
-    today: 'Today',
     duration: {
       hours: '{n}h',
       minutes: '{n}m',
@@ -63,14 +60,12 @@ const enUS: typeof zhCN = {
     },
   },
   workspace: {
-    title: 'Workspace',
     greeting: {
       morning: 'Good morning, {name}',
       afternoon: 'Good afternoon, {name}',
       evening: 'Good evening, {name}',
     },
     subtitle: 'Pick up where you left off.',
-    demoBadge: 'Demo data',
     stats: {
       streak: 'Learning streak',
       streakUnit: '{n} days',
@@ -87,7 +82,6 @@ const enUS: typeof zhCN = {
     },
     continueLearning: {
       title: 'Continue learning',
-      resume: 'Resume',
       lastStudied: 'Last studied {time}',
     },
     todayTasks: {
@@ -96,7 +90,6 @@ const enUS: typeof zhCN = {
     },
     recentNotes: {
       title: 'Recent notes',
-      empty: 'No notes yet',
     },
     recentChats: {
       title: 'Recent conversations',
@@ -132,7 +125,6 @@ const enUS: typeof zhCN = {
       noMaterials: 'No learning materials yet',
       relatedNotes: 'Related notes',
       noNotes: 'No related notes yet',
-      overview: 'Overview',
       ai: {
         title: 'AI learning assistant',
         askAi: 'Ask AI',
@@ -168,7 +160,6 @@ const enUS: typeof zhCN = {
   },
   aiTutor: {
     title: 'AI Tutor',
-    conversations: 'Conversations',
     newChat: 'New chat',
     searchPlaceholder: 'Search conversations…',
     listEmpty: 'No conversations yet',
@@ -203,7 +194,6 @@ const enUS: typeof zhCN = {
   },
   notes: {
     title: 'Notes',
-    all: 'All notes',
     newNote: 'New note',
     untitled: 'Untitled note',
     searchPlaceholder: 'Search notes…',
@@ -246,7 +236,6 @@ const enUS: typeof zhCN = {
     decksEmpty: 'No decks yet',
     noSelection: 'Select or create a deck to see its cards',
     cards: '{n} cards',
-    due: '{n} due',
     cardList: 'Cards',
     empty: 'This deck has no cards yet',
     front: 'Front',
@@ -265,7 +254,6 @@ const enUS: typeof zhCN = {
       close: 'End preview',
     },
     stats: {
-      title: 'Statistics',
       total: 'Total cards',
       dueToday: 'Due today',
       reviewed: 'Reviews done',
@@ -301,8 +289,6 @@ const enUS: typeof zhCN = {
     today: 'Today',
     prev: 'Previous',
     next: 'Next',
-    sessions: 'Study sessions',
-    tasks: 'Tasks',
     empty: 'Nothing scheduled',
     taskDue: 'Due',
   },

@@ -26,7 +26,6 @@ export default {
     cancel: '取消',
     save: '保存',
     delete: '删除',
-    confirm: '确认',
     create: '创建',
     theme: {
       label: '外观',
@@ -35,8 +34,6 @@ export default {
       system: '系统',
     },
     viewAll: '查看全部',
-    comingSoon: '即将推出',
-    today: '今天',
     duration: {
       hours: '{n} 小时',
       minutes: '{n} 分钟',
@@ -61,14 +58,12 @@ export default {
     },
   },
   workspace: {
-    title: '工作台',
     greeting: {
       morning: '早上好，{name}',
       afternoon: '下午好，{name}',
       evening: '晚上好，{name}',
     },
     subtitle: '继续你的学习旅程。',
-    demoBadge: '演示数据',
     stats: {
       streak: '连续学习',
       streakUnit: '{n} 天',
@@ -85,7 +80,6 @@ export default {
     },
     continueLearning: {
       title: '继续学习',
-      resume: '继续',
       lastStudied: '上次学习：{time}',
     },
     todayTasks: {
@@ -94,7 +88,6 @@ export default {
     },
     recentNotes: {
       title: '最近笔记',
-      empty: '还没有笔记',
     },
     recentChats: {
       title: '最近对话',
@@ -130,7 +123,6 @@ export default {
       noMaterials: '还没有学习资料',
       relatedNotes: '相关笔记',
       noNotes: '还没有相关笔记',
-      overview: '概览',
       ai: {
         title: 'AI 学习助手',
         askAi: '向 AI 提问',
@@ -166,7 +158,6 @@ export default {
   },
   aiTutor: {
     title: 'AI 导师',
-    conversations: '对话',
     newChat: '新对话',
     searchPlaceholder: '搜索对话…',
     listEmpty: '还没有对话',
@@ -201,7 +192,6 @@ export default {
   },
   notes: {
     title: '笔记',
-    all: '全部笔记',
     newNote: '新建笔记',
     untitled: '未命名笔记',
     searchPlaceholder: '搜索笔记…',
@@ -244,7 +234,6 @@ export default {
     decksEmpty: '还没有卡组',
     noSelection: '选择或新建一个卡组查看卡片',
     cards: '{n} 张卡片',
-    due: '{n} 张待复习',
     cardList: '卡片列表',
     empty: '这个卡组还没有卡片',
     front: '正面',
@@ -262,7 +251,6 @@ export default {
       close: '结束预览',
     },
     stats: {
-      title: '统计',
       total: '卡片总数',
       dueToday: '今日到期',
       reviewed: '累计复习',
@@ -298,8 +286,6 @@ export default {
     today: '今天',
     prev: '上一页',
     next: '下一页',
-    sessions: '学习时段',
-    tasks: '任务',
     empty: '暂无安排',
     taskDue: '截止',
   },
