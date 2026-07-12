@@ -106,6 +106,17 @@
   --color-info: #2563eb;
   --color-info-soft: rgba(37, 99, 235, 0.1);
 
+  /* Accents — subject identity & categorical data-viz palette. Fixed order
+     (indigo → teal → amber → rose → violet), validated per mode against the
+     surface color for lightness band, chroma, CVD separation and contrast
+     (dataviz six checks). Never cycle or generate extra hues — a 6th category
+     folds into "other". */
+  --accent-indigo: #5e6ad2;
+  --accent-teal: #0d9488;
+  --accent-amber: #d97706;
+  --accent-rose: #e11d48;
+  --accent-violet: #7c3aed;
+
   /* Interactive */
   --color-focus-ring: var(--color-primary);
   --opacity-hover: 0.92;
@@ -177,6 +188,7 @@
 
   /* Layout */
   --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
   --header-height: 56px;
 
   color-scheme: light;
@@ -214,6 +226,14 @@ html.dark {
   --color-danger-soft: rgba(248, 113, 113, 0.14);
   --color-info: #60a5fa;
   --color-info-soft: rgba(96, 165, 250, 0.14);
+
+  /* Accents — dark steps re-picked (not auto-flipped) and validated against
+     the dark surface; teal/amber/rose pass both modes unchanged. */
+  --accent-indigo: #6674dd;
+  --accent-teal: #0d9488;
+  --accent-amber: #d97706;
+  --accent-rose: #e11d48;
+  --accent-violet: #8b5cf6;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.5), 0 1px 2px rgba(0, 0, 0, 0.4);

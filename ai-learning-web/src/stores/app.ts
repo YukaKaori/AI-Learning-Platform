@@ -5,6 +5,7 @@ export type ThemeMode = 'light' | 'dark' | 'system'
 
 const THEME_STORAGE_KEY = 'alp.theme'
 const LOCALE_STORAGE_KEY = 'alp.locale'
+const SIDEBAR_STORAGE_KEY = 'alp.sidebar-collapsed'
 
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -20,6 +21,8 @@ export const useAppStore = defineStore('app', {
   state: () => ({
     themeMode: 'system' as ThemeMode,
     locale: DEFAULT_LOCALE as AppLocale,
+    /** Desktop sidebar collapsed to an icon rail. Persisted; irrelevant on mobile (drawer). */
+    sidebarCollapsed: false,
   }),
 
   getters: {
@@ -39,6 +42,7 @@ export const useAppStore = defineStore('app', {
       if (isSupportedLocale(storedLocale)) {
         this.locale = storedLocale
       }
+      this.sidebarCollapsed = localStorage.getItem(SIDEBAR_STORAGE_KEY) === '1'
       i18n.global.locale.value = this.locale
       this.applyTheme()
       darkQuery.addEventListener('change', () => {
@@ -46,6 +50,11 @@ export const useAppStore = defineStore('app', {
           this.applyTheme()
         }
       })
+    },
+
+    toggleSidebar() {
+      this.sidebarCollapsed = !this.sidebarCollapsed
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, this.sidebarCollapsed ? '1' : '0')
     },
 
     setThemeMode(mode: ThemeMode) {

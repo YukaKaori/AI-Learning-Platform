@@ -20,6 +20,21 @@ const datetimeFormat = {
     minute: '2-digit',
     second: '2-digit',
   },
+  /** Compact day, e.g. 07-12 / Jul 12 — list rows, card metadata. */
+  short: {
+    month: 'short',
+    day: 'numeric',
+  },
+  /** Wall-clock time, e.g. 14:30 — calendar sessions, schedules. */
+  time: {
+    hour: '2-digit',
+    minute: '2-digit',
+  },
+  /** Month + year, e.g. 2026年7月 / July 2026 — profile, calendar header. */
+  monthYear: {
+    year: 'numeric',
+    month: 'long',
+  },
 } as const
 
 export const i18n = createI18n<[typeof zhCN], AppLocale, false>({

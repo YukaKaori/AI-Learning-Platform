@@ -3,8 +3,10 @@ import { ref } from 'vue'
 import AppHeader from './AppHeader.vue'
 import AppSidebar from './AppSidebar.vue'
 import AppDrawer from '@/components/AppDrawer.vue'
+import { useAppStore } from '@/stores/app'
 
 const mobileNavOpen = ref(false)
+const appStore = useAppStore()
 </script>
 
 <template>
@@ -12,7 +14,7 @@ const mobileNavOpen = ref(false)
     <AppHeader @toggle-nav="mobileNavOpen = true" />
 
     <div class="body">
-      <aside class="sidebar-static">
+      <aside class="sidebar-static" :class="{ collapsed: appStore.sidebarCollapsed }">
         <AppSidebar />
       </aside>
 
@@ -46,8 +48,13 @@ const mobileNavOpen = ref(false)
   border-right: var(--border-width-sm) solid var(--color-border);
   background-color: var(--color-surface);
   transition:
+    width var(--duration-base) var(--ease-out),
     background-color var(--duration-base) var(--ease-out),
     border-color var(--duration-base) var(--ease-out);
+}
+
+.sidebar-static.collapsed {
+  width: var(--sidebar-width-collapsed);
 }
 
 .content {

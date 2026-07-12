@@ -40,9 +40,67 @@ const router = createRouter({
       children: [
         {
           path: '',
-          name: 'home',
-          component: () => import('@/views/HomeView.vue'),
-          meta: { titleKey: 'nav.home' },
+          redirect: { name: 'workspace' },
+        },
+        {
+          path: 'workspace',
+          name: 'workspace',
+          component: () => import('@/features/workspace/WorkspaceView.vue'),
+          meta: { titleKey: 'nav.workspace' },
+        },
+        {
+          path: 'subjects',
+          name: 'subjects',
+          component: () => import('@/features/subjects/SubjectsView.vue'),
+          meta: { titleKey: 'nav.subjects' },
+        },
+        {
+          path: 'subjects/:id',
+          name: 'subject-detail',
+          component: () => import('@/features/subjects/SubjectDetailView.vue'),
+          meta: { titleKey: 'nav.subjects' },
+        },
+        {
+          path: 'ai-tutor/:conversationId?',
+          name: 'ai-tutor',
+          component: () => import('@/features/ai-tutor/AiTutorView.vue'),
+          meta: { titleKey: 'nav.aiTutor' },
+        },
+        {
+          path: 'flashcards',
+          name: 'flashcards',
+          component: () => import('@/features/flashcards/FlashcardsView.vue'),
+          meta: { titleKey: 'nav.flashcards' },
+        },
+        {
+          path: 'notes',
+          name: 'notes',
+          component: () => import('@/features/notes/NotesView.vue'),
+          meta: { titleKey: 'nav.notes' },
+        },
+        {
+          path: 'calendar',
+          name: 'calendar',
+          component: () => import('@/features/calendar/CalendarView.vue'),
+          meta: { titleKey: 'nav.calendar' },
+        },
+        {
+          path: 'analytics',
+          name: 'analytics',
+          component: () => import('@/features/analytics/AnalyticsView.vue'),
+          meta: { titleKey: 'nav.analytics' },
+        },
+        {
+          path: 'profile',
+          name: 'profile',
+          component: () => import('@/features/profile/ProfileView.vue'),
+          meta: { titleKey: 'nav.profile' },
+        },
+        {
+          path: 'settings',
+          name: 'settings',
+          component: () => import('@/features/settings/SettingsView.vue'),
+          meta: { titleKey: 'nav.settings' },
         },
         {
           path: 'design-system',

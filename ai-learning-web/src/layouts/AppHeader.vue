@@ -12,7 +12,7 @@ const { t } = useI18n()
     <button
       type="button"
       class="nav-toggle"
-      :aria-label="t('nav.home')"
+      :aria-label="t('nav.menu')"
       @click="$emit('toggle-nav')"
     >
       <AppIcon name="menu" />

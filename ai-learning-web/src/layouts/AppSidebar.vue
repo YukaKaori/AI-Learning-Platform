@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
+import { AppIcon, AppTooltip } from '@/components'
+import type { IconName } from '@/components'
 import { useAppStore, type ThemeMode } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { SUPPORTED_LOCALES, type AppLocale } from '@/locales'
@@ -23,50 +25,125 @@ const localeLabels: Record<AppLocale, string> = {
   'zh-CN': '中文',
   'en-US': 'EN',
 }
+
+interface NavEntry {
+  to: string
+  icon: IconName
+  labelKey: string
+}
+
+const navEntries: NavEntry[] = [
+  { to: '/workspace', icon: 'home', labelKey: 'nav.workspace' },
+  { to: '/subjects', icon: 'book-open', labelKey: 'nav.subjects' },
+  { to: '/ai-tutor', icon: 'bot', labelKey: 'nav.aiTutor' },
+  { to: '/flashcards', icon: 'layers', labelKey: 'nav.flashcards' },
+  { to: '/notes', icon: 'notebook-pen', labelKey: 'nav.notes' },
+  { to: '/calendar', icon: 'calendar', labelKey: 'nav.calendar' },
+  { to: '/analytics', icon: 'bar-chart', labelKey: 'nav.analytics' },
+]
+
+const footerEntries: NavEntry[] = [
+  { to: '/settings', icon: 'settings', labelKey: 'nav.settings' },
+  { to: '/profile', icon: 'user', labelKey: 'nav.profile' },
+]
 </script>
 
 <template>
-  <div class="app-sidebar">
+  <div class="app-sidebar" :class="{ collapsed: appStore.sidebarCollapsed }">
     <div class="brand">
       <span class="brand-mark" aria-hidden="true"></span>
-      <span class="brand-name">{{ t('app.name') }}</span>
+      <span v-if="!appStore.sidebarCollapsed" class="brand-name">{{ t('app.name') }}</span>
     </div>
 
     <nav class="nav">
-      <RouterLink to="/" class="nav-item" @click="$emit('navigate')">{{ t('nav.home') }}</RouterLink>
+      <template v-for="entry in navEntries" :key="entry.to">
+        <AppTooltip
+          v-if="appStore.sidebarCollapsed"
+          :content="t(entry.labelKey)"
+          placement="right"
+        >
+          <RouterLink :to="entry.to" class="nav-item" @click="$emit('navigate')">
+            <AppIcon :name="entry.icon" />
+          </RouterLink>
+        </AppTooltip>
+        <RouterLink v-else :to="entry.to" class="nav-item" @click="$emit('navigate')">
+          <AppIcon :name="entry.icon" />
+          <span class="nav-label">{{ t(entry.labelKey) }}</span>
+        </RouterLink>
+      </template>
     </nav>
 
+    <div class="nav nav-footer">
+      <template v-for="entry in footerEntries" :key="entry.to">
+        <AppTooltip
+          v-if="appStore.sidebarCollapsed"
+          :content="t(entry.labelKey)"
+          placement="right"
+        >
+          <RouterLink :to="entry.to" class="nav-item" @click="$emit('navigate')">
+            <AppIcon :name="entry.icon" />
+          </RouterLink>
+        </AppTooltip>
+        <RouterLink v-else :to="entry.to" class="nav-item" @click="$emit('navigate')">
+          <AppIcon :name="entry.icon" />
+          <span class="nav-label">{{ t(entry.labelKey) }}</span>
+        </RouterLink>
+      </template>
+    </div>
+
     <div class="sidebar-footer">
-      <div v-if="authStore.user" class="user-row">
+      <div v-if="authStore.user && !appStore.sidebarCollapsed" class="user-row">
         <span class="user-name">{{ authStore.user.nickname || authStore.user.username }}</span>
         <button class="logout-button" type="button" @click="handleLogout">
           {{ t('auth.logout') }}
         </button>
       </div>
-      <div class="control-group" role="radiogroup" :aria-label="t('common.theme.label')">
-        <button
-          v-for="mode in themeModes"
-          :key="mode"
-          class="control-chip"
-          :class="{ active: appStore.themeMode === mode }"
-          type="button"
-          @click="appStore.setThemeMode(mode)"
-        >
-          {{ t(`common.theme.${mode}`) }}
+      <AppTooltip
+        v-else-if="authStore.user"
+        :content="t('auth.logout')"
+        placement="right"
+      >
+        <button class="logout-button-collapsed" type="button" @click="handleLogout">
+          <AppIcon name="log-out" size="sm" />
         </button>
-      </div>
-      <div class="control-group" role="radiogroup" :aria-label="t('common.language')">
-        <button
-          v-for="loc in SUPPORTED_LOCALES"
-          :key="loc"
-          class="control-chip"
-          :class="{ active: appStore.locale === loc }"
-          type="button"
-          @click="appStore.setLocale(loc)"
-        >
-          {{ localeLabels[loc] }}
-        </button>
-      </div>
+      </AppTooltip>
+
+      <template v-if="!appStore.sidebarCollapsed">
+        <div class="control-group" role="radiogroup" :aria-label="t('common.theme.label')">
+          <button
+            v-for="mode in themeModes"
+            :key="mode"
+            class="control-chip"
+            :class="{ active: appStore.themeMode === mode }"
+            type="button"
+            @click="appStore.setThemeMode(mode)"
+          >
+            {{ t(`common.theme.${mode}`) }}
+          </button>
+        </div>
+        <div class="control-group" role="radiogroup" :aria-label="t('common.language')">
+          <button
+            v-for="loc in SUPPORTED_LOCALES"
+            :key="loc"
+            class="control-chip"
+            :class="{ active: appStore.locale === loc }"
+            type="button"
+            @click="appStore.setLocale(loc)"
+          >
+            {{ localeLabels[loc] }}
+          </button>
+        </div>
+      </template>
+
+      <button
+        type="button"
+        class="collapse-toggle"
+        :aria-label="t(appStore.sidebarCollapsed ? 'nav.expand' : 'nav.collapse')"
+        @click="appStore.toggleSidebar()"
+      >
+        <AppIcon :name="appStore.sidebarCollapsed ? 'panel-left-open' : 'panel-left-close'" size="sm" />
+        <span v-if="!appStore.sidebarCollapsed">{{ t('nav.collapse') }}</span>
+      </button>
     </div>
   </div>
 </template>
@@ -77,6 +154,12 @@ const localeLabels: Record<AppLocale, string> = {
   flex-direction: column;
   height: 100%;
   padding: var(--space-5) var(--space-3);
+  transition: padding var(--duration-base) var(--ease-out);
+}
+
+.app-sidebar.collapsed {
+  padding: var(--space-5) var(--space-2);
+  align-items: center;
 }
 
 .brand {
@@ -86,9 +169,14 @@ const localeLabels: Record<AppLocale, string> = {
   padding: 0 var(--space-2) var(--space-5);
 }
 
+.collapsed .brand {
+  padding: 0 0 var(--space-5);
+}
+
 .brand-mark {
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
   border-radius: var(--radius-sm);
   background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
 }
@@ -103,10 +191,23 @@ const localeLabels: Record<AppLocale, string> = {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
+}
+
+.nav:first-of-type {
   flex: 1;
 }
 
+.nav-footer {
+  margin-bottom: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--border-width-sm) solid var(--color-border);
+}
+
 .nav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   padding: var(--space-2) var(--space-2);
   border-radius: var(--radius-md);
   color: var(--color-text-secondary);
@@ -116,12 +217,22 @@ const localeLabels: Record<AppLocale, string> = {
     color var(--duration-fast) var(--ease-out);
 }
 
+.collapsed .nav-item {
+  justify-content: center;
+}
+
+.nav-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .nav-item:hover {
   background-color: var(--color-surface-hover);
   color: var(--color-text);
 }
 
-.nav-item.router-link-exact-active {
+.nav-item.router-link-active {
   background-color: var(--color-primary-soft);
   color: var(--color-primary);
   font-weight: 500;
@@ -131,6 +242,7 @@ const localeLabels: Record<AppLocale, string> = {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+  width: 100%;
 }
 
 .user-row {
@@ -168,6 +280,28 @@ const localeLabels: Record<AppLocale, string> = {
   color: var(--color-danger);
 }
 
+.logout-button-collapsed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  align-self: center;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.logout-button-collapsed:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-danger);
+}
+
 .control-group {
   display: flex;
   gap: 2px;
@@ -200,5 +334,31 @@ const localeLabels: Record<AppLocale, string> = {
   background-color: var(--color-surface);
   color: var(--color-text);
   box-shadow: var(--shadow-sm);
+}
+
+.collapse-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-family: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.collapsed .collapse-toggle {
+  justify-content: center;
+}
+
+.collapse-toggle:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text);
 }
 </style>
