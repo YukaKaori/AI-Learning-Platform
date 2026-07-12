@@ -29,11 +29,12 @@ declare module 'vue' {
     AppTag: typeof import('./../components/AppTag.vue')['default']
     AppTooltip: typeof import('./../components/AppTooltip.vue')['default']
     ElButton: typeof import('element-plus/es')['ElButton']
+    ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDrawer: typeof import('element-plus/es')['ElDrawer']
-    ElInput: typeof import('element-plus/es')['ElInput']
     ElPagination: typeof import('element-plus/es')['ElPagination']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    GlassScene: typeof import('./../components/experience/GlassScene.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
   }

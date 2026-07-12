@@ -16,5 +16,8 @@ export { default as AppPageHeader } from './AppPageHeader.vue'
 export { default as AppSearch } from './AppSearch.vue'
 export { default as AppPagination } from './AppPagination.vue'
 
+// Experience surfaces — cinematic building blocks for signature pages.
+export { default as GlassScene } from './experience/GlassScene.vue'
+
 export type { IconName } from './icons/registry'
 export * from './types'

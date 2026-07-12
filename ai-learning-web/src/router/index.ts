@@ -26,6 +26,14 @@ const router = createRouter({
       meta: { titleKey: 'auth.login.title', guestOnly: true },
     },
     {
+      // Post-authentication welcome experience — the bridge into the
+      // workspace. Full-bleed, so it lives outside AppLayout.
+      path: '/welcome',
+      name: 'welcome',
+      component: () => import('@/views/WelcomeView.vue'),
+      meta: { titleKey: 'welcome.title', requiresAuth: true },
+    },
+    {
       path: '/',
       component: AppLayout,
       meta: { requiresAuth: true },

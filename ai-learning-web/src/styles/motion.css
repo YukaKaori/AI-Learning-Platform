@@ -51,6 +51,35 @@
   }
 }
 
+/* Soft vertical drift for floating glass cards (pair with staggered delays). */
+@keyframes app-float {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(-8px);
+  }
+}
+
+/*
+ * Scroll-entrance vocabulary, driven by useScrollReveal():
+ * elements marked [data-reveal] start soft and settle into place once the
+ * composable flags them visible. Stagger with --reveal-delay on the element.
+ */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(24px);
+  transition:
+    opacity var(--duration-slow) var(--ease-out),
+    transform 600ms var(--ease-out);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+[data-reveal].is-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
 /* Vue <Transition name="app-fade"> / "app-scale" / "app-slide-up" / "app-slide-down" */
 .app-fade-enter-active,
 .app-fade-leave-active {
