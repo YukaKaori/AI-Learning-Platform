@@ -36,6 +36,12 @@ const router = createRouter({
           component: () => import('@/views/HomeView.vue'),
           meta: { titleKey: 'nav.home' },
         },
+        {
+          path: 'design-system',
+          name: 'design-system',
+          component: () => import('@/views/DesignSystemView.vue'),
+          meta: { titleKey: 'designSystem.title' },
+        },
       ],
     },
   ],

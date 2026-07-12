@@ -5,6 +5,9 @@ export default {
   nav: {
     home: '工作台',
   },
+  designSystem: {
+    title: '设计系统',
+  },
   common: {
     retry: '重试',
     loading: '加载中',
@@ -14,6 +17,23 @@ export default {
       light: '浅色',
       dark: '深色',
       system: '系统',
+    },
+  },
+  ds: {
+    input: {
+      showPassword: '显示密码',
+      hidePassword: '隐藏密码',
+      clear: '清空',
+    },
+    empty: {
+      title: '暂无数据',
+    },
+    search: {
+      placeholder: '搜索…',
+      clear: '清除搜索',
+    },
+    tag: {
+      remove: '移除',
     },
   },
   home: {

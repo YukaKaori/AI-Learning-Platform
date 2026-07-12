@@ -75,6 +75,31 @@ scheduler, audit log.
 - **Element Plus**: on-demand via unplugin resolvers; prefer custom token-based
   components for signature surfaces, EP for complex primitives (tables, pickers).
 
+## Design system (Phase 3)
+
+Full reference: `docs/design-system.md`. Binding conventions only, here:
+
+- **Tokens are the only source of visual values.** `styles/tokens.css` defines the base
+  scales (typography, color, spacing, radius, shadow, motion, glass); `styles/motion.css`
+  holds transition/keyframe tokens. Components never hard-code a color, size, or timing.
+- **Component split**: signature surfaces (`AppButton`, `AppInput`, `AppCard`,
+  `AppAvatar`, `AppTag`, `AppBadge`, `AppEmpty`, `AppLoading`, `AppSkeleton`,
+  `AppSection`, `AppPageHeader`, `AppSearch`) are custom-built from tokens. Complex
+  primitives with real positioning/focus-trap logic (`AppDialog`, `AppDrawer`,
+  `AppTooltip`, `AppPagination`) are themed wrappers over Element Plus — do not
+  reimplement that logic from scratch.
+- **Icons**: only `AppIcon` may import from the underlying icon library
+  (`lucide-vue-next`). Application code never imports icon components directly — this
+  keeps the icon set swappable.
+- **Registration**: `src/components/` exports are explicit (`src/components/index.ts`
+  barrel) — no auto-import for app components, matching the existing
+  `unplugin-vue-components` config which is scoped to Element Plus only.
+- **Theme engine**: `stores/app.ts` owns `light` / `dark` / `system`, persisted, applied
+  via the `html.dark` class. A `glass` mode is a reserved extension point (tokens exist
+  in `tokens.css`; no toggle yet).
+- **Glass theme, full component skinning, and the premium login** are reserved for
+  Phase 4+ — this phase only prepares the tokens.
+
 ## Database
 
 See `database/README.md`: snake_case, utf8mb4, mandatory audit columns, logical
@@ -193,11 +218,17 @@ OAuth2/third-party login and MFA (additional issuance paths behind
 
 ## Roadmap
 
-1. **Phase 1 — Foundation** ✅: plumbing, standards, design system, zero business features.
+1. **Phase 1 — Foundation** ✅: plumbing, standards, initial design tokens, zero business features.
 2. **Phase 2 — Identity** ✅: Spring Security 7 + JWT (access/refresh), user schema (V1 migration), frontend auth flow + route guards.
-3. **Phase 3 — Domain design, then core workspace**: written domain model first, then the non-AI workspace skeleton.
-4. **Phase 4 — AI integration**: `AiService` abstraction, SSE streaming chat, Redis, WebSocket where truly bidirectional.
-5. **Phase 5 — Production**: Docker, CI/CD, observability, security hardening, OSS storage.
+3. **Phase 3 — Enterprise design system** ✅: full token architecture (typography, color,
+   spacing, radius, shadow, motion, glass prep), the `AppX` component library, icon
+   abstraction (`AppIcon` over lucide), layout system (header/sidebar/content,
+   responsive), accessibility baseline, `docs/design-system.md`. No business modules, no
+   AI, no login redesign.
+4. **Phase 4 — Domain design, then core workspace**: written domain model first, then
+   the non-AI workspace skeleton. Premium login experience lands here too.
+5. **Phase 5 — AI integration**: `AiService` abstraction, SSE streaming chat, Redis, WebSocket where truly bidirectional.
+6. **Phase 6 — Production**: Docker, CI/CD, observability, security hardening, OSS storage.
 
 ## Git
 

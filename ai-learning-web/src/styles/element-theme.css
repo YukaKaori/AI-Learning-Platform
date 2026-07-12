@@ -14,10 +14,13 @@ html.dark {
   --el-color-warning: var(--color-warning);
   --el-color-danger: var(--color-danger);
   --el-color-error: var(--color-danger);
+  --el-color-info: var(--color-info);
 
   --el-bg-color: var(--color-surface);
   --el-bg-color-page: var(--color-bg);
+  --el-bg-color-overlay: var(--color-surface);
   --el-fill-color-light: var(--color-surface-hover);
+  --el-mask-color: var(--color-overlay);
 
   --el-text-color-primary: var(--color-text);
   --el-text-color-regular: var(--color-text-secondary);
@@ -28,13 +31,54 @@ html.dark {
   --el-border-color-light: var(--color-border);
   --el-border-color-lighter: var(--color-border);
 
-  --el-border-radius-base: var(--radius-md);
+  --el-border-radius-base: var(--radius-input);
   --el-border-radius-small: var(--radius-sm);
   --el-border-radius-round: var(--radius-full);
 
   --el-font-family: var(--font-sans);
   --el-font-size-base: var(--text-base);
 
-  --el-box-shadow: var(--shadow-md);
+  --el-box-shadow: var(--shadow-float);
   --el-box-shadow-light: var(--shadow-sm);
+  --el-box-shadow-lighter: var(--shadow-sm);
+  --el-box-shadow-dark: var(--shadow-glass);
+
+  --el-transition-duration: var(--duration-base);
+  --el-transition-duration-fast: var(--duration-fast);
+}
+
+/* Dialog / Drawer / Tooltip / Pagination — themed surfaces wrapped by
+   AppDialog / AppDrawer / AppTooltip / AppPagination. */
+.el-overlay {
+  background-color: var(--color-overlay);
+}
+
+.el-dialog,
+.el-drawer {
+  border-radius: var(--radius-dialog);
+  box-shadow: var(--shadow-glass);
+  background-color: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  backdrop-filter: blur(var(--glass-blur));
+  -webkit-backdrop-filter: blur(var(--glass-blur));
+}
+
+.el-drawer {
+  border-radius: 0;
+}
+
+.el-popper.is-dark {
+  background: var(--color-text);
+  color: var(--color-bg);
+}
+
+.el-popper.is-dark .el-popper__arrow::before {
+  background: var(--color-text);
+  border-color: var(--color-text);
+}
+
+.el-pagination {
+  --el-pagination-border-radius: var(--radius-sm);
+  --el-pagination-button-color: var(--color-text-secondary);
+  --el-pagination-hover-color: var(--color-primary);
 }

@@ -7,6 +7,9 @@ const enUS: typeof zhCN = {
   nav: {
     home: 'Workspace',
   },
+  designSystem: {
+    title: 'Design System',
+  },
   common: {
     retry: 'Retry',
     loading: 'Loading',
@@ -16,6 +19,23 @@ const enUS: typeof zhCN = {
       light: 'Light',
       dark: 'Dark',
       system: 'System',
+    },
+  },
+  ds: {
+    input: {
+      showPassword: 'Show password',
+      hidePassword: 'Hide password',
+      clear: 'Clear',
+    },
+    empty: {
+      title: 'No data',
+    },
+    search: {
+      placeholder: 'Search…',
+      clear: 'Clear search',
+    },
+    tag: {
+      remove: 'Remove',
     },
   },
   home: {
