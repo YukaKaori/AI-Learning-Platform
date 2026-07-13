@@ -8,9 +8,9 @@ import lombok.Setter;
 import java.io.Serial;
 
 /**
- * One AI Tutor conversation thread. {@code subjectName} is a snapshot, not a
- * logical FK — Subjects are still frontend-mock-only (see {@code
- * docs/ai-engine.md}), so there is no real {@code subjects} row to point at.
+ * One AI Tutor conversation thread. {@code subjectId} links the chat to a real
+ * subject (V5); {@code subjectName} is kept as a denormalized display snapshot
+ * so lists stay readable after the subject is renamed or deleted.
  */
 @Getter
 @Setter
@@ -25,7 +25,10 @@ public class AiConversation extends BaseEntity {
 
     private String title;
 
-    /** Snapshot of the client-supplied mock subject name, if the chat started from a subject page. */
+    /** Logical FK → subjects.id; null = no subject context. */
+    private Long subjectId;
+
+    /** Denormalized subject name snapshot for display; survives subject rename/delete. */
     private String subjectName;
 
     private Boolean archived;
