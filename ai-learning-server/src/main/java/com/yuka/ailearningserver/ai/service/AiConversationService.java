@@ -22,7 +22,7 @@ import com.yuka.ailearningserver.ai.provider.ChatRole;
 import com.yuka.ailearningserver.ai.provider.ChatTurn;
 import com.yuka.ailearningserver.ai.stream.RelayCallback;
 import com.yuka.ailearningserver.ai.stream.SseRelay;
-import com.yuka.ailearningserver.common.exception.BusinessException;
+import com.yuka.ailearningserver.common.OwnershipGuard;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -154,14 +154,8 @@ public class AiConversationService {
     }
 
     private AiConversation requireOwned(Long userId, Long conversationId) {
-        AiConversation conversation = conversationMapper.selectById(conversationId);
-        if (conversation == null) {
-            throw new BusinessException(AiErrorCode.CONVERSATION_NOT_FOUND);
-        }
-        if (!conversation.getUserId().equals(userId)) {
-            throw new BusinessException(AiErrorCode.CONVERSATION_ACCESS_DENIED);
-        }
-        return conversation;
+        return OwnershipGuard.require(conversationMapper.selectById(conversationId), AiConversation::getUserId,
+                userId, AiErrorCode.CONVERSATION_NOT_FOUND, AiErrorCode.CONVERSATION_ACCESS_DENIED);
     }
 
     private static ChatTurn toChatTurn(AiMessage message) {

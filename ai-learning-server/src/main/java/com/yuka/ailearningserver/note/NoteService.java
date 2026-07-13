@@ -1,7 +1,7 @@
 package com.yuka.ailearningserver.note;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.yuka.ailearningserver.common.exception.BusinessException;
+import com.yuka.ailearningserver.common.OwnershipGuard;
 import com.yuka.ailearningserver.note.dto.CreateNoteRequest;
 import com.yuka.ailearningserver.note.dto.NoteResponse;
 import com.yuka.ailearningserver.note.dto.UpdateNoteRequest;
@@ -65,13 +65,7 @@ public class NoteService {
     }
 
     private Note requireOwned(Long userId, Long id) {
-        Note note = noteMapper.selectById(id);
-        if (note == null) {
-            throw new BusinessException(NoteErrorCode.NOTE_NOT_FOUND);
-        }
-        if (!note.getUserId().equals(userId)) {
-            throw new BusinessException(NoteErrorCode.NOTE_ACCESS_DENIED);
-        }
-        return note;
+        return OwnershipGuard.require(noteMapper.selectById(id), Note::getUserId, userId,
+                NoteErrorCode.NOTE_NOT_FOUND, NoteErrorCode.NOTE_ACCESS_DENIED);
     }
 }

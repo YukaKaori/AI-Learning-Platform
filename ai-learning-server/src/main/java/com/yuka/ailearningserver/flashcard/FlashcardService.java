@@ -1,7 +1,7 @@
 package com.yuka.ailearningserver.flashcard;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.yuka.ailearningserver.common.exception.BusinessException;
+import com.yuka.ailearningserver.common.OwnershipGuard;
 import com.yuka.ailearningserver.flashcard.dto.CardResponse;
 import com.yuka.ailearningserver.flashcard.dto.CreateCardRequest;
 import com.yuka.ailearningserver.flashcard.dto.CreateDeckRequest;
@@ -129,24 +129,12 @@ public class FlashcardService {
     }
 
     private FlashcardDeck requireOwnedDeck(Long userId, Long deckId) {
-        FlashcardDeck deck = deckMapper.selectById(deckId);
-        if (deck == null) {
-            throw new BusinessException(FlashcardErrorCode.DECK_NOT_FOUND);
-        }
-        if (!deck.getUserId().equals(userId)) {
-            throw new BusinessException(FlashcardErrorCode.DECK_ACCESS_DENIED);
-        }
-        return deck;
+        return OwnershipGuard.require(deckMapper.selectById(deckId), FlashcardDeck::getUserId, userId,
+                FlashcardErrorCode.DECK_NOT_FOUND, FlashcardErrorCode.DECK_ACCESS_DENIED);
     }
 
     private Flashcard requireOwnedCard(Long userId, Long cardId) {
-        Flashcard card = cardMapper.selectById(cardId);
-        if (card == null) {
-            throw new BusinessException(FlashcardErrorCode.CARD_NOT_FOUND);
-        }
-        if (!card.getUserId().equals(userId)) {
-            throw new BusinessException(FlashcardErrorCode.CARD_ACCESS_DENIED);
-        }
-        return card;
+        return OwnershipGuard.require(cardMapper.selectById(cardId), Flashcard::getUserId, userId,
+                FlashcardErrorCode.CARD_NOT_FOUND, FlashcardErrorCode.CARD_ACCESS_DENIED);
     }
 }
