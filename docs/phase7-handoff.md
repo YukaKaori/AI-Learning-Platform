@@ -1,25 +1,46 @@
 # Phase 7 Handoff — Commercial Product Foundation
 
-Status as of 2026-07-13 (second session — steps 3 and 4 completed). This document is the resume point for continuing Phase 7 in a new session. Read this first; the approved plan with full rationale lives at `D:\claude-data\plans\refactored-wiggling-floyd.md` (outside the repo — paste its contents into the new session if that path isn't reachable there, or regenerate from this handoff plus `docs/architecture.md`).
+Status as of 2026-07-14 (third session — step 5 completed; **backend workstream A is now fully done**). This document is the resume point for continuing Phase 7 in a new session. Read this first; the approved plan with full rationale lives at `D:\claude-data\plans\refactored-wiggling-floyd.md` (outside the repo — confirm it exists in the new environment, or regenerate from this handoff plus `docs/architecture.md`).
 
 ## What Phase 7 is
 
-The repo was restored to the final Phase 6 commit (`85f7df3`) and Phase 7 was **redesigned from scratch** as "Commercial Product Foundation" — turning the Phase 6 codebase (real Notes/Flashcards/AI chat, mock Subjects/Tasks/Calendar/Analytics/Workspace) into a per-user, database-driven SaaS foundation with a premium 3-mode theme and a productivity-app Workspace. Full context, all 10 design decisions (D1–D10), and the complete 13-step plan are in the plan file above — **do not re-derive them, read the plan file.**
+The repo was restored to the final Phase 6 commit (`85f7df3`) and Phase 7 was **redesigned from scratch** as "Commercial Product Foundation" — turning the Phase 6 codebase into a per-user, database-driven SaaS foundation with a premium 3-mode theme and a productivity-app Workspace. Full context, all 10 design decisions (D1–D10), and the complete 13-step plan are in the plan file above — **do not re-derive them.**
 
-**Ignore any reference to an earlier "Phase 7 — Data Realization" attempt** (it used different error-code ranges, e.g. Subject 140000) — that attempt was discarded before this redesign began and no longer exists in the repo.
+**Ignore any reference to an earlier "Phase 7 — Data Realization" attempt** (different error-code ranges, e.g. Subject 140000) — discarded before this redesign.
 
 Out of scope this phase (do not build): registration/email/password-reset, payments, OSS/file upload, external auth, spaced-repetition engine, WebSockets, Docker/CI.
 
-## Progress: steps 1–4 of 13 done
+## Session summary (2026-07-14, step 5)
+
+Implemented A9 + A10 as one step and committed it as `cdea352`. Architectural decisions made this session (all downstream steps should respect them):
+
+- **Attribution rules for analytics** (documented on `AnalyticsService`): a session's minutes count on the day it **ends**; only sessions that have **already ended** count (calendar sessions planned in the future are never study time); "this week" is the **rolling 7-day window ending today** vs the 7 days before it. Streak per D6 (consecutive end-days, anchored today *or* yesterday, server TZ).
+- **Honest nulls, not fake zeros**: `weekDeltaPercent` is null when the previous week is 0; `taskCompletionPercent` is null when there are no tasks. Frontend (step 10) must render these as "—".
+- **Aggregation style**: in-memory grouping over slim column-projected selects (mirrors `SubjectService.deriveAll()`) — dialect-free (H2 tests + MySQL), no new SQL. Materialize only if measurably slow (D5).
+- **Workspace reuses other modules' DTOs** (`TaskResponse`, `ConversationSummaryResponse`, `StudySessionResponse`, `ActivityDayResponse`) rather than redefining wire shapes; the one exception is the slim `RecentNote` record (no content payload). `WorkspaceService` injects `AnalyticsService` + `PreferenceService` so the dashboard can never disagree with the analytics page or the user's goal.
+- **AI subject context**: `ContextHints` gained a **resolved** `Long subjectId` as its first component (callers resolve via `SubjectService`, the context service never trusts raw input); `LearningContext` gained `subjectMaterialTitles`; when a subject resolves, note count/titles are **scoped to that subject** and the DB name/description win over string hints; a stale id (subject deleted later) degrades gracefully to hints. Conversations persist `subjectId` + a refreshed `subjectName` snapshot on create **and** send; on send, `subjectId: null` keeps the current link, `""` unlinks (partial-update convention). `AiConversation.subjectId/subjectName` now carry `@TableField(updateStrategy = ALWAYS)`.
+- **`SubjectService.resolveOwnedSubject(userId, wireId)`** added (returns the entity; `resolveOwnedSubjectId` now delegates to it) — use it when a caller needs subject fields, not just the id.
+- Workspace error range 170000 is **intentionally unused** (a pure read model has no failure modes); analytics uses exactly one code, `180000 ANALYTICS_RANGE_INVALID` (days outside 1..90).
+
+Commits this session: `cdea352` (feat, step 5) and the docs commit containing this file.
+
+## Current project status
+
+- **Phase**: 7 (Commercial Product Foundation), phases 1–6 complete.
+- **Step**: 5 of 13 **done** — backend workstream A (A1–A10) is complete. Next: **step 6 (B1+B2)**, first frontend step.
+- **Branch**: `main`. Working tree: clean after the docs commit. Not pushed (push via SSH when asked; port 22 may be blocked → ssh.github.com:443).
+- Commit history for the phase: `1a20f23` (step 1) → `d93f07c` (step 2) → `ccdd41a` (step 3) → `cac1706` (step 4) → `b04b8b3` (docs) → `cdea352` (step 5) → this docs commit.
+
+## Progress: steps 1–5 of 13 done
 
 | # | Step | Status |
 |---|------|--------|
-| 1 | A1+A2 — Migrations (V4 user_preferences, V5 ai_conversations.subject_id), pom.xml flyway-mysql fix, `common/OwnershipGuard` + retrofit | **Done**, commit `1a20f23` |
-| 2 | A3+A4 — Subject module (110000s) + Material module (120000s) | **Done**, commit `d93f07c` |
-| 3 | A5+A6+A7 — Task (150000s), Calendar/StudySession (160000s), Note/Deck subjectId linkage | **Done**, commit `ccdd41a` |
-| 4 | A8 — Preferences (200000s) + auth prep (`/me` createdAt, `PUT /auth/profile`) | **Done**, commit `cac1706` |
-| 5 | A9+A10 — Analytics read model (180000s), Workspace summary (170000s), AI context subjectId upgrade | **Not started — resume here** |
-| 6 | B1+B2 — Frontend api modules, `useAsync` composable, `StatTile` component | Not started |
+| 1 | A1+A2 — Migrations V4/V5, pom fix, `common/OwnershipGuard` | **Done**, `1a20f23` |
+| 2 | A3+A4 — Subject (110000s) + Material (120000s) modules | **Done**, `d93f07c` |
+| 3 | A5+A6+A7 — Task (150000s), Calendar (160000s), Note/Deck subjectId | **Done**, `ccdd41a` |
+| 4 | A8 — Preferences (200000s) + auth prep (`/me` createdAt, `PUT /auth/profile`) | **Done**, `cac1706` |
+| 5 | A9+A10 — Analytics (180000s), Workspace summary (170000s), AI subjectId context | **Done**, `cdea352` |
+| 6 | B1+B2 — Frontend api modules, `useAsync` composable, `StatTile` component | **Not started — resume here** |
 | 7 | B3+B4 — Subjects frontend + cross-feature subject linkage | Not started |
 | 8 | B5 — Calendar + Tasks frontend | Not started |
 | 9 | B6 — Workspace redesign (centerpiece) | Not started |
@@ -28,58 +49,64 @@ Out of scope this phase (do not build): registration/email/password-reset, payme
 | 12 | C1+C2 — Dark theme black+purple luxury glass re-skin, UX unification pass | Not started |
 | 13 | D — Docs (architecture.md Phase 7 section, new mock-migration.md, etc.) | Not started |
 
-## What exists now (backend)
+## What exists now (backend — complete; steps 6–11 consume it, don't change it)
 
-- `common/OwnershipGuard.require(entity, ownerFn, userId, notFoundCode, deniedCode)` — used by Note, Flashcard (deck+card), AiConversation, Subject, Material services. **Use this for every new service's ownership check** (Task, Calendar next).
-- `subject/` package: `SubjectController` (`/api/v1/subjects`, full CRUD), `SubjectService` (list/get/create/update/delete, derived `materialCount/noteCount/deckCount/studyMinutes/lastStudiedAt` computed in `deriveAll()`), `SubjectErrorCode` (110000–110002), DTOs (`SubjectResponse` incl. nested `Derived` record, `CreateSubjectRequest`, `UpdateSubjectRequest`).
-  - **`SubjectService.requireOwned(userId, id)` is public** — call it from Task/Calendar services when validating an optional `subjectId` on create/update (per A5/A6/A7 in the plan).
-  - `SubjectService.delete()` is `@Transactional` and implements the D2 cascade: soft-deletes materials, nullifies `subjectId` on notes/decks/tasks/sessions/conversations. **When you build Task and Calendar services (step 3), no extra wiring is needed for delete-cascade — it's already handled here** since it directly touches `LearningTaskMapper`/`StudySessionMapper` (already injected).
-- `material/` package: `MaterialController` (nested `/api/v1/subjects/{id}/materials` for collection, flat `/api/v1/materials/{id}` for item — mirrors flashcard deck/card nesting), `MaterialService`, `MaterialErrorCode` (120000–120002). Metadata + external links only this phase (`storageKey`/`sizeBytes` reserved for future upload).
-- `task/` package: `TaskController` (`/api/v1/tasks`, full CRUD + GET-by-id, list filters `status`/`dueBefore`/`subjectId` all optional), `TaskService`, `TaskErrorCode` (150000–150003). Create always starts `todo` (no status field); `completedAt` is owned by the status transition in `update()` — set entering `done`, cleared leaving it, never client-writable.
-- `calendar/` package: `StudySessionController` (`/api/v1/study-sessions`, mandatory `?from=&to=` epoch-ms window on GET), `StudySessionService` (overlap semantics: `startsAt < to AND endsAt > from`, ordered by `startsAt`), `CalendarErrorCode` (160000–160003). `endsAt > startsAt` validated on create and update (combined range re-checked when either bound changes); `durationMinutes` derived in the response DTO.
-- `preference/` package: `PreferenceController` (`GET/PUT /api/v1/preferences`), `PreferenceService` (no row → `PreferencesResponse.DEFAULTS` = system/zh-CN/60; PUT lazily upserts, partial application, `DuplicateKeyException` first-write race handled), `PreferenceErrorCode` (200000–200001). `dailyGoalMinutes` bean-validated `@Min(1) @Max(1440)`.
-- Auth prep done: `AuthUserResponse` now carries `createdAt` (epoch ms); `PUT /api/v1/auth/profile` updates nickname/avatar via `AuthService.updateProfile()` (explicit `LambdaUpdateWrapper` because blank clears to null). `DevUserSeeder` untouched.
-- **Established wire conventions (follow these in every remaining step):**
-  - All instants are **epoch milliseconds** in both directions; ids are strings.
-  - Task status wire vocabulary is **`todo` / `inProgress` / `done`** (camelCase, matching `features/tasks/types.ts`); priority `low`/`medium`/`high`.
-  - Partial updates: null = no change; **nullable columns clear via sentinel** — `subjectId: ""` unlinks, task `dueAt: 0` unschedules, session `title: ""` / profile `nickname: ""` clear.
-  - Nullable entity columns that must be clearable through `updateById` carry `@TableField(updateStrategy = FieldStrategy.ALWAYS)` (Note.subjectId, FlashcardDeck.subjectId, LearningTask.subjectId/dueAt/completedAt, StudySession.subjectId/title) — safe because every service loads the row before updating. **Do NOT add ALWAYS to `User` fields**: `AuthService.recordLogin()` writes a partial entity.
-  - `SubjectService.resolveOwnedSubjectId(userId, wireId)` is the single resolver for optional wire subject ids (null/blank → null; malformed → SUBJECT_NOT_FOUND; foreign → SUBJECT_ACCESS_DENIED). Note/Deck/Task/Session create+update all use it.
-- A7 done: `CreateNoteRequest`/`UpdateNoteRequest`/`CreateDeckRequest`/`UpdateDeckRequest` all have optional `subjectId`.
-- `GlobalExceptionHandler` now maps `MissingServletRequestParameterException` and `MethodArgumentTypeMismatchException` to 40001 (previously escaped as 500 — mattered for the mandatory calendar window params). Also fixed: invalid subject status / material type now raise their reserved codes (110002/120002) instead of a raw `IllegalArgumentException` 500.
-- `AiConversation` entity has `subjectId` (nullable) alongside `subjectName` (kept as denormalized display snapshot). **Not yet wired into `AiConversationService`/`ContextHints`** — that's step 5 (A10).
-- Migrations: V4 (`user_preferences` — theme/locale/daily_goal_minutes, defaults implied when absent, no seed rows) and V5 (`ai_conversations.subject_id` + index) are applied and verified against dev MySQL (both fresh-DB and incremental-from-V3 paths tested).
-- `pom.xml`: `flyway-mysql` no longer pins an undefined `${flyway.version}` property (Boot's BOM manages it now).
+Everything from the previous handoff (OwnershipGuard; subject/material/task/calendar/preference modules; auth prep; wire conventions) still holds. New this session:
+
+- `analytics/`: `AnalyticsController` (`GET /api/v1/analytics/summary`, `/activity?days=N` default 30 max 90, `/subject-shares?days=N` default 30), `AnalyticsService`, `AnalyticsErrorCode` (180000), DTOs `AnalyticsSummaryResponse` / `ActivityDayResponse` / `SubjectShareResponse`.
+  - `ActivityDayResponse.date` is an **ISO local date string** (`yyyy-MM-dd`) — a calendar bucket, not an instant; the epoch-ms convention deliberately doesn't apply. One `activity` series feeds both the bar chart and the heatmap (`days=84`).
+  - `subject-shares` returns a **null-id bucket** for minutes not linked to any (surviving) subject, so shares always sum to the real total; percent is computed client-side.
+  - **`AnalyticsService.streakDays()` and `activity()` are public and reused by `WorkspaceService`** — never re-implement streak or per-day math elsewhere.
+- `workspace/`: `WorkspaceController` (`GET /api/v1/workspace/summary`), `WorkspaceService`, `WorkspaceSummaryResponse` (nested `Stats`, `ContinueLearningItem`, `RecentNote`). Sections: stats (streak, studiedToday, dailyGoal, dueCards = `due_at ≤ now`, activeSubjects), continueLearning (top-3 **active** subjects by latest `updatedAt` across subject/materials/notes/decks/sessions), upcomingTasks (5, open, dueAt asc nulls-last), recentConversations (3, unarchived), recentNotes (3, slim), todaySessions (overlap semantics), weekActivity (7 days).
+- AI: `CreateConversationRequest`/`SendMessageRequest` gained optional `subjectId`; `ConversationSummaryResponse`/`ConversationDetailResponse` now include `subjectId` (string, nullable) — **frontend `api/modules/ai.ts` types must add these fields in step 6 (B1)**. Legacy hint-only requests behave exactly as before.
+- `docs/ai-engine.md` updated: the "subjects are mock-only" limitation section replaced with the Phase 7 subject-resolution contract; record shapes, conversation flow, and DB section refreshed.
 
 ## What exists now (test infra)
 
-- `src/test/resources/schema.sql` (H2, Flyway disabled on `test` profile) mirrors **V1 through V5** — subjects, learning_materials, notes, flashcard_decks, flashcards, learning_tasks, study_sessions, ai_conversations, ai_messages, user_preferences. **Keep this file in sync any time you add a migration** — the note at the top of the file says so. (Steps 3–4 added no migrations, so it is still current.)
-- Service-level test classes, all `@SpringBootTest` + `@ActiveProfiles("test")`, error codes asserted via `isInstanceOfSatisfying(BusinessException.class, e -> ... getErrorCode())`:
-  - `subject/SubjectServiceTest` — CRUD, cross-user 403, derived counts, delete cascade, note/deck subject linkage (validated create, foreign rejected, `""` unlink persisted).
-  - `task/TaskServiceTest` — CRUD, completedAt lifecycle (incl. persistence of the cleared value), filters, dueAt=0 sentinel, cross-user, subject linkage + delete-unlink.
-  - `calendar/StudySessionServiceTest` — window overlap, time-range validation on create/update, clear sentinels, cross-user, foreign subject rejected.
-  - `preference/PreferenceServiceTest` — defaults without row creation, lazy upsert + partial application, invalid theme/locale, per-user isolation.
-  - `auth/AuthFlowIntegrationTest` — full token lifecycle (MockMvc) + profile update/clear + `/me` createdAt.
-- **Test gotcha**: `DATETIME` columns round fractional seconds on persist — anchor test instants with `Instant.now().truncatedTo(ChronoUnit.SECONDS)` or duration assertions drift by ±1s (bit us once in `StudySessionServiceTest`).
-- Full suite: `cd ai-learning-server && ./mvnw test` — **32 tests, all green** as of this handoff. `./mvnw package -DskipTests` also verified.
+- `src/test/resources/schema.sql` unchanged (V1–V5 already mirrored; step 5 added no migrations). Keep in sync with any future migration.
+- Test suite: **53 tests, all green** (`./mvnw test`). New classes:
+  - `analytics/AnalyticsServiceTest` — streak empty/gap/today-missing/consecutive, future-session exclusion, empty-account nulls, rolling-week delta, activity zero-fill + window validation, subject-share buckets.
+  - `workspace/WorkspaceServiceTest` — empty-account zeros (goal default 60), stats composition, task cap/order, recent-section caps + archived exclusion, continue-learning ranking.
+  - `ai/AiSubjectContextTest` — create/link + name snapshot, foreign/malformed rejection, server-side context resolution (materials + subject-scoped notes), hint fallback, streamReply persist/keep/clear semantics, foreign subject rejected before any message persists.
+- Test gotchas that bit (or nearly bit) this session: whole-second time anchors (`Instant.now().truncatedTo(SECONDS)`) because DATETIME rounds fractional seconds; **ordering assertions on `updatedAt` need jdbcTemplate backdating** — rows created in a fast loop land in the same second and `ORDER BY updated_at` ties are unstable; `streamReply` is testable without a provider key (link/message persistence happens before the async stream; the provider error arrives asynchronously and persists nothing).
 
 ## Nothing changed on the frontend yet
 
-Steps 1–2 were backend-only. All 8 `features/*/mock.ts` files are still in place and unmodified; frontend work starts at step 6 (B1).
+All 8 `features/*/mock.ts` files are still in place and untouched. Frontend work starts at step 6 (B1).
 
-## How to resume
+## Exact resume point
 
-1. Read `D:\claude-data\plans\refactored-wiggling-floyd.md` in full (or this file if that path is unavailable — it's outside the repo, so confirm it exists in the new environment first).
-2. Continue at **step 5 (A9+A10)** — the last backend step:
-   - **A9 Analytics read model** (`analytics/` package, 180000s): `GET /v1/analytics/summary` (weekMinutes, weekDeltaPercent *nullable* to avoid div-by-zero, streakDays, taskCompletionPercent, aiChatsThisWeek), `GET /v1/analytics/activity?days=N≤90` (zero-filled per day — feeds both bar chart and heatmap; heatmap uses `days=84`), `GET /v1/analytics/subject-shares?days=30`. On-the-fly aggregation over existing tables (D5, no new tables). Streak per D6: consecutive days with ≥1 session *ending* today or yesterday, server default TZ. **Unit-test the streak: empty / gap / today-missing cases.**
-   - **A10 Workspace summary** (`workspace/` package, 170000s): single `GET /v1/workspace/summary` DTO — stats (streak, studiedToday, dailyGoal from preferences, dueCards = count `due_at ≤ now`, activeSubjects), continueLearning (top-3 subjects by recent linked activity), upcomingTasks (5), recentConversations (3), recentNotes (3), todaySessions, weekActivity. Reuse the analytics streak logic — put the shared computation where both can call it (e.g. a package-visible service in `analytics/` injected into workspace, matching how MaterialService uses SubjectService).
-   - **A10 AI context upgrade**: add `subjectId` to `ContextHints`; when present, `LearningContextService` resolves the *owned* subject (name/description/materials/notes) server-side; persist `subjectId` on the conversation (use `resolveOwnedSubjectId`); string hints stay backward-compatible (legacy hint-only chat must still stream). Read `ai/context/*`, `ai/service/AiConversationService`, and `docs/ai-engine.md` before touching this.
-3. Mirror the established patterns exactly: package-by-feature, `OwnershipGuard`, `SubjectService.resolveOwnedSubjectId()` for optional subject ids, record DTOs with `from()`, epoch-ms wire instants, reserved error-code ranges (now enumerated in `docs/architecture.md`). Read models get controllers/services/DTOs but no new entities or migrations.
-4. After step 5, backend is complete — steps 6–11 are frontend (start by reading `ai-learning-web/src/api/modules/note.ts`, `composables/`, and the mock files being replaced), step 12 theme, step 13 docs.
-5. Verify each module the same way steps 1–4 were verified: `./mvnw test`, then boot the dev server (`./mvnw spring-boot:run -Dspring-boot.run.profiles=dev`) and curl a matrix including cross-user 403s. **Known gotcha**: this Windows/Git Bash environment leaves stray Java processes holding port 8080 between sessions — check `netstat -ano | grep :8080` and `taskkill //PID <pid> //F` before re-launching; and avoid non-ASCII characters in curl `-d` payloads run through Git Bash (mangles UTF-8 and produces a spurious 500 — use ASCII test data, the mangling is a shell artifact, not an app bug).
-6. Demo login: `demo` / `Demo123456` (seeded by `DevUserSeeder`, dev profile only, no domain content). The dev DB is clean — everything created during step 3/4 curl verification was deleted afterwards (preferences reset to defaults, nickname restored to "Demo").
-7. Local dev: JDK 22, MySQL 9.1 (root/`1234`, db `ai_learning`), backend `:8080`, frontend `:5173`.
+Start **step 6 (B1+B2)** — frontend API modules + shared infra:
 
-## Verification baseline for every future step
+1. First file to read: this file, then `ai-learning-web/src/api/modules/note.ts` (the module pattern to mirror) and `ai-learning-web/src/api/http.ts` (`unwrap`/`ApiError`).
+2. First module to inspect: `ai-learning-web/src/api/modules/` and `ai-learning-web/src/composables/` (see what exists before adding `useAsync.ts`), plus `features/*/mock.ts` to know the shapes being replaced.
+3. First task to implement (B1): typed api modules `subject.ts`, `material.ts`, `task.ts`, `calendar.ts`, `workspace.ts`, `analytics.ts`, `preferences.ts`; extend `auth.ts` (`createdAt`, `updateProfile`) and `ai.ts` (`subjectId` on create/send requests and conversation responses). Wire types must match the backend DTOs exactly (epoch-ms numbers, string ids, ISO date strings in activity, nullable `weekDeltaPercent`/`taskCompletionPercent`).
+4. Then B2: `composables/useAsync.ts` (+ unit test), `components/StatTile.vue` (barrel-registered, shown in `/design-system`), retrofit `.catch(console.error)` holes in `AiTutorView`/`NotesView` to the Skeleton → content | `AppEmpty` | error-with-retry pattern (D3).
+5. Frontend verification baseline: `npm run type-check && npm run test:unit && npm run build`, i18n mirror test after any locale change.
 
-Backend: `./mvnw compile test`. Frontend (once started): `npm run type-check && npm run test:unit && npm run build`, plus the i18n mirror test after any locale change. Full phase acceptance criteria are in the plan file's Verification section.
+Do not modify backend code in steps 6–11 unless a defect is found.
+
+## Verification performed (step 5)
+
+- **Build/package**: `./mvnw compile` and `./mvnw package -DskipTests` clean. (Type check = Java compile; no frontend change to type-check.)
+- **Tests**: full suite 53/53 green.
+- **API (dev server + curl, demo user)**: empty account → summary all zeros with null delta/completion, activity zero-filled 7 days, shares `[]`, workspace stats `0/0/60/0/0` — no 500s. `days=91` → 180000; `days=abc` → 40001; no token → 40100/401. Populated (subject + material + linked note + task + today 45-min session + 10-days-ago 30-min session + goal 120) → summary `{weekMinutes:45, weekDeltaPercent:50, streakDays:1, taskCompletionPercent:0}`, shares linked-60/unlinked-30 buckets (values include a pre-existing leftover conversation in `aiChatsThisWeek`, correctly), workspace reflected everything. AI: create with `subjectId` → link + "Step5 Verify" snapshot; SSE send with `subjectId` → link persisted even though the stream errored with 190000 (no `DEEPSEEK_API_KEY` in this environment — expected); `""` sentinel unlinked and persisted; malformed id → 110000.
+- **Database (MySQL 9.1, `ai_learning`)**: `ai_conversations.subject_id`/`subject_name` and `user_preferences.daily_goal_minutes` inspected directly and matched API state at each stage.
+- **Cleanup**: every verification row deleted via the API afterwards; preferences reset to 60; final workspace call re-verified honest zeros.
+- **Intentionally not verified**: live DeepSeek streaming with real subject context (no API key here — same standing gap as Phase 6 Task 15; the pipeline up to the provider call is covered by tests and the SSE error path). **Browser verification intentionally skipped**: zero frontend files changed and the new endpoints have no UI consumers until step 6; existing pages still run on mocks and are unaffected.
+
+## Known risks / gotchas
+
+- **PowerShell mangles `""` in `git commit -m` here-strings** (native-arg quoting splits the message into pathspecs — a commit this session failed that way with HEAD untouched). Write the message to a file and use `git commit -F <file>`. Also avoid non-ASCII in Git-Bash curl `-d` payloads (UTF-8 mangling → spurious 500; shell artifact, not an app bug).
+- **Stray Java processes hold port 8080 between sessions** — `netstat -ano | grep :8080`, then `taskkill //PID <pid> //F` (Git Bash) before relaunching. The dev server started this session was killed at the end; port verified free is not re-checked after that.
+- **Login field is `usernameOrEmail`**, not `username` (`{"usernameOrEmail":"demo","password":"Demo123456"}`).
+- **Dev DB is NOT fully clean**: two notes (`未命名笔记`, `Verify Note`) and one conversation (`Hello, explain recursion`) remain from *Phase 6* verification — pre-existing, deliberately left untouched (they weren't created this session). They show up in workspace `recentNotes`/`recentConversations` and count 1 into `aiChatsThisWeek` until they age out or are deleted. Everything step 5 created was removed.
+- Analytics/streak use **server default timezone** and day-bucket assertions in tests assume the test doesn't straddle midnight — same accepted tolerance as the existing suite.
+- `AiConversation` now has ALWAYS-update fields; like the other entities, **never write it via a partial entity `updateById`** — always load the row first (all current code does).
+- MySQL root password `1234`; mysql CLI at `C:\Program Files\MySQL\MySQL Server 9.1\bin\mysql.exe`. JDK 22, backend :8080, frontend :5173, demo login `demo`/`Demo123456`.
+
+## Documentation state
+
+- `docs/ai-engine.md` — updated this session (subject-resolution contract). In sync.
+- `docs/architecture.md` — **not** touched: error ranges 170000/180000 were already enumerated; no decision in this step contradicted it. The Phase 7 section, read-model contracts and D2/D6 write-ups land in step 13 per plan (plus the new `docs/mock-migration.md`).
+- This file — rewritten for the step-5 boundary.
