@@ -33,7 +33,10 @@ code lives in `common/`; framework wiring in `config/`.
 - **Errors**: services throw `BusinessException(ErrorCode)`. Only
   `GlobalExceptionHandler` builds error responses. Error-code ranges:
   40000–49999 common client, 50000–59999 common server, then 10000 per feature
-  module starting at 100000 (auth: 100000–109999, …).
+  module starting at 100000 — auth 100000, subject 110000, material 120000,
+  note 130000, flashcard 140000, task 150000, calendar 160000,
+  workspace 170000 (reserved), analytics 180000 (reserved), ai 190000,
+  preferences 200000.
 - **Entities** extend `BaseEntity` (snowflake id, `created_at`, `updated_at`,
   `deleted`); audit fields are filled automatically. Entities never cross the API
   boundary — map to DTOs.

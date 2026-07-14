@@ -21,6 +21,7 @@ import org.springframework.test.web.servlet.MvcResult;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -189,6 +190,36 @@ class AuthFlowIntegrationTest {
                                 {"refreshToken": "definitely-not-issued"}"""))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.code").value(AuthErrorCode.REFRESH_TOKEN_INVALID.code()));
+    }
+
+    @Test
+    void profileUpdate_appliesPartialFieldsAndClearSentinel() throws Exception {
+        MvcResult loginResult = login("ada");
+        String accessToken = json(loginResult, "$.data.accessToken");
+
+        // /me now exposes createdAt (member since) as epoch millis.
+        mockMvc.perform(get("/api/v1/auth/me").header("Authorization", "Bearer " + accessToken))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.createdAt").isNumber());
+
+        // Update nickname only — avatar untouched.
+        mockMvc.perform(put("/api/v1/auth/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname": "Countess"}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").value("Countess"));
+
+        // Blank clears back to null, and the change is persisted.
+        mockMvc.perform(put("/api/v1/auth/profile")
+                        .header("Authorization", "Bearer " + accessToken)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"nickname": ""}"""))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.nickname").doesNotExist());
+        assertThat(userMapper.selectById(user.getId()).getNickname()).isNull();
     }
 
     @Test

@@ -1,9 +1,11 @@
 package com.yuka.ailearningserver.auth;
 
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.yuka.ailearningserver.auth.dto.AuthUserResponse;
 import com.yuka.ailearningserver.auth.dto.LoginRequest;
 import com.yuka.ailearningserver.auth.dto.LoginResponse;
 import com.yuka.ailearningserver.auth.dto.TokenPairResponse;
+import com.yuka.ailearningserver.auth.dto.UpdateProfileRequest;
 import com.yuka.ailearningserver.auth.security.AuthenticatedUser;
 import com.yuka.ailearningserver.auth.security.UserPrincipal;
 import com.yuka.ailearningserver.auth.token.TokenService;
@@ -78,12 +80,36 @@ public class AuthService {
     }
 
     public AuthUserResponse currentUser(AuthenticatedUser principal) {
-        User user = userMapper.selectById(principal.id());
+        return AuthUserResponse.from(requireUser(principal.id()));
+    }
+
+    /**
+     * Minimal self-service profile edit (nickname/avatar). Written through an
+     * explicit update wrapper because blank input clears a column to null,
+     * which {@code updateById}'s default null-skipping strategy would drop.
+     */
+    public AuthUserResponse updateProfile(Long userId, UpdateProfileRequest request) {
+        User user = requireUser(userId);
+        if (request.nickname() != null) {
+            user.setNickname(request.nickname().isBlank() ? null : request.nickname().trim());
+        }
+        if (request.avatar() != null) {
+            user.setAvatar(request.avatar().isBlank() ? null : request.avatar().trim());
+        }
+        userMapper.update(null, new LambdaUpdateWrapper<User>()
+                .eq(User::getId, user.getId())
+                .set(User::getNickname, user.getNickname())
+                .set(User::getAvatar, user.getAvatar()));
+        return AuthUserResponse.from(user);
+    }
+
+    private User requireUser(Long userId) {
+        User user = userMapper.selectById(userId);
         if (user == null) {
             // Token is valid but the account is gone (deleted since issuance).
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
-        return AuthUserResponse.from(user);
+        return user;
     }
 
     private void recordLogin(Long userId, ClientInfo client) {

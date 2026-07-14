@@ -6,6 +6,7 @@ import com.yuka.ailearningserver.auth.dto.LoginResponse;
 import com.yuka.ailearningserver.auth.dto.LogoutRequest;
 import com.yuka.ailearningserver.auth.dto.RefreshRequest;
 import com.yuka.ailearningserver.auth.dto.TokenPairResponse;
+import com.yuka.ailearningserver.auth.dto.UpdateProfileRequest;
 import com.yuka.ailearningserver.auth.security.AuthenticatedUser;
 import com.yuka.ailearningserver.auth.token.TokenService.ClientInfo;
 import com.yuka.ailearningserver.common.api.ApiResponse;
@@ -15,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -52,6 +54,12 @@ public class AuthController {
     @GetMapping("/me")
     public ApiResponse<AuthUserResponse> me(@AuthenticationPrincipal AuthenticatedUser principal) {
         return ApiResponse.success(authService.currentUser(principal));
+    }
+
+    @PutMapping("/profile")
+    public ApiResponse<AuthUserResponse> updateProfile(@AuthenticationPrincipal AuthenticatedUser principal,
+                                                       @Valid @RequestBody UpdateProfileRequest request) {
+        return ApiResponse.success(authService.updateProfile(principal.id(), request));
     }
 
     /**
