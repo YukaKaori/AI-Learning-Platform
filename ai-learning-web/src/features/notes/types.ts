@@ -21,7 +21,7 @@ export interface OutlineItem {
 }
 
 /** Extract h1–h3 headings from markdown for the outline rail. */
-export function outlineOf(note: Note): OutlineItem[] {
+export function outlineOf(note: { content: string }): OutlineItem[] {
   const items: OutlineItem[] = []
   for (const line of note.content.split('\n')) {
     const match = /^(#{1,3})\s+(.+)$/.exec(line.trim())
@@ -31,7 +31,7 @@ export function outlineOf(note: Note): OutlineItem[] {
 }
 
 /** First non-heading, non-empty line — the list-row preview. */
-export function excerptOf(note: Note): string {
+export function excerptOf(note: { content: string }): string {
   for (const line of note.content.split('\n')) {
     const text = line.trim()
     if (text && !text.startsWith('#')) return text

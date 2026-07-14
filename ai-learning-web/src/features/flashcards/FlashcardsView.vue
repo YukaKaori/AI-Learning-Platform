@@ -13,10 +13,12 @@ import {
   updateDeck,
 } from '@/api/modules/flashcard'
 import type { FlashcardDeckDto, FlashcardDto } from '@/api/modules/flashcard'
-import { getSubject } from '@/features/subjects/mock'
-import { accentColor } from '@/features/subjects/types'
+import { useSubjectsStore } from '@/stores/subjects'
+import SubjectPicker from '@/features/subjects/components/SubjectPicker.vue'
+import { accentColor, subjectAccentOf } from '@/features/subjects/types'
 
 const { t } = useI18n()
+const subjectsStore = useSubjectsStore()
 
 // --- Decks ------------------------------------------------------------------
 
@@ -36,11 +38,12 @@ async function loadDecks() {
 
 onMounted(() => {
   loadDecks().catch((error) => console.error(error))
+  void subjectsStore.load()
 })
 
 function deckAccent(subjectId: string | null): string {
-  const subject = subjectId ? getSubject(subjectId) : undefined
-  return subject ? accentColor(subject.accent) : 'var(--color-muted)'
+  const subject = subjectsStore.byId(subjectId)
+  return subject ? accentColor(subjectAccentOf(subject.color)) : 'var(--color-muted)'
 }
 
 // --- Cards, lazily loaded the first time a deck is selected ----------------
@@ -99,17 +102,24 @@ interface DeckFormState {
   id?: string
   name: string
   description: string
+  subjectId: string | null
 }
 
 const deckForm = ref<DeckFormState | null>(null)
 const deckFormSaving = ref(false)
 
 function openCreateDeck() {
-  deckForm.value = { mode: 'create', name: '', description: '' }
+  deckForm.value = { mode: 'create', name: '', description: '', subjectId: null }
 }
 
 function openEditDeck(deck: FlashcardDeckDto) {
-  deckForm.value = { mode: 'edit', id: deck.id, name: deck.name, description: deck.description ?? '' }
+  deckForm.value = {
+    mode: 'edit',
+    id: deck.id,
+    name: deck.name,
+    description: deck.description ?? '',
+    subjectId: deck.subjectId,
+  }
 }
 
 async function submitDeckForm() {
@@ -121,6 +131,7 @@ async function submitDeckForm() {
       const created = await createDeck({
         name: form.name.trim(),
         description: form.description.trim() || undefined,
+        subjectId: form.subjectId ?? undefined,
       })
       decks.value.unshift(created)
       selectedDeckId.value = created.id
@@ -128,11 +139,14 @@ async function submitDeckForm() {
       const updated = await updateDeck(form.id, {
         name: form.name.trim(),
         description: form.description.trim() || undefined,
+        // '' is the unlink sentinel — a cleared picker detaches the subject.
+        subjectId: form.subjectId ?? '',
       })
       const target = decks.value.find((d) => d.id === form.id)
       if (target) {
         target.name = updated.name
         target.description = updated.description
+        target.subjectId = updated.subjectId
       }
     }
     deckForm.value = null
@@ -413,6 +427,10 @@ async function confirmDeleteCard() {
             rows="3"
             :placeholder="t('flashcards.deckDialog.descriptionPlaceholder')"
           ></textarea>
+        </div>
+        <div class="form-field">
+          <label class="form-label">{{ t('flashcards.deckDialog.subject') }}</label>
+          <SubjectPicker v-model="deckForm.subjectId" />
         </div>
       </div>
       <template #footer>

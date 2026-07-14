@@ -10,16 +10,23 @@ export interface NoteDto {
   updatedAt: number
 }
 
+/** `subjectId` must reference a subject owned by the caller. */
 export interface CreateNotePayload {
   title: string
   content?: string
   pinned?: boolean
+  subjectId?: string
 }
 
+/**
+ * Partial update — omitted fields keep their value; `subjectId: ''` unlinks
+ * the note from its subject.
+ */
 export interface UpdateNotePayload {
   title?: string
   content?: string
   pinned?: boolean
+  subjectId?: string
 }
 
 export function listNotes() {

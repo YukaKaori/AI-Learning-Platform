@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { AppButton, AppDialog, AppEmpty, AppIcon, AppSearch, AppSkeleton, AppTooltip } from '@/components'
@@ -12,14 +12,20 @@ import {
   renameConversation,
 } from '@/api/modules/ai'
 import { useAsync } from '@/composables/useAsync'
-import { mockSubjects } from '@/features/subjects/mock'
-import { accentColor } from '@/features/subjects/types'
+import { useSubjectsStore } from '@/stores/subjects'
+import SubjectPicker from '@/features/subjects/components/SubjectPicker.vue'
+import { accentColor, subjectAccentOf } from '@/features/subjects/types'
 import { ServerSseChatProvider, type ChatProvider } from './provider'
 import type { ChatMessage, Conversation } from './types'
 
 const { t, d } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const subjectsStore = useSubjectsStore()
+
+onMounted(() => {
+  void subjectsStore.load()
+})
 
 // Local working copy the chat mutates; rebuilt whenever a load completes
 // (already-loaded message threads are carried over).
@@ -39,6 +45,7 @@ watch(summaries, (list) => {
     .map((c) => ({
       id: c.id,
       title: c.title,
+      subjectId: c.subjectId ?? undefined,
       subjectName: c.subjectName ?? undefined,
       archived: c.archived,
       updatedAt: c.updatedAt,
@@ -81,6 +88,8 @@ async function loadDetail(id: string) {
   try {
     const detail = await getConversation(id)
     conversation.title = detail.title
+    conversation.subjectId = detail.subjectId ?? undefined
+    conversation.subjectName = detail.subjectName ?? undefined
     conversation.messages = detail.messages.map((message) => ({
       id: message.id,
       role: message.role === 'assistant' ? 'assistant' : 'user',
@@ -105,6 +114,20 @@ function select(id: string | null) {
   router.replace({ name: 'ai-tutor', params: { conversationId: id ?? '' } })
 }
 
+// --- Subject context --------------------------------------------------------
+// The picker mirrors the active conversation's link; for a new chat it sets
+// the context of the conversation about to be created. A change to an
+// existing conversation is persisted by the next send (the SSE request's
+// subjectId follows the partial-update convention; '' unlinks).
+
+const selectedSubjectId = ref<string | null>(null)
+
+watch(active, (conversation, previous) => {
+  if (conversation?.id !== previous?.id) {
+    selectedSubjectId.value = conversation?.subjectId ?? null
+  }
+})
+
 // --- Provider seam: ServerSseChatProvider streams real replies from the backend's AiService.
 const draft = ref('')
 const busy = ref(false)
@@ -126,10 +149,11 @@ async function send() {
   let conversation = active.value
   let isNewConversation = false
   if (!conversation) {
-    const created = await createConversation({})
+    const created = await createConversation({ subjectId: selectedSubjectId.value ?? undefined })
     conversation = {
       id: created.id,
       title: created.title,
+      subjectId: created.subjectId ?? undefined,
       subjectName: created.subjectName ?? undefined,
       archived: false,
       updatedAt: created.updatedAt,
@@ -161,7 +185,10 @@ async function send() {
   conversation.messages.push(reply)
   busy.value = true
 
-  const provider = new ServerSseChatProvider(conversation.id, { subjectName: conversation.subjectName })
+  // '' unlinks when the picker was cleared; a re-sent id is an idempotent keep.
+  const provider = new ServerSseChatProvider(conversation.id, {
+    subjectId: selectedSubjectId.value ?? '',
+  })
   activeProvider = provider
   try {
     for await (const chunk of provider.streamReply(conversation.messages)) {
@@ -176,6 +203,8 @@ async function send() {
   } finally {
     reply.streaming = false
     conversation.updatedAt = Date.now()
+    conversation.subjectId = selectedSubjectId.value ?? undefined
+    conversation.subjectName = subjectsStore.byId(selectedSubjectId.value)?.name
     busy.value = false
     activeProvider = null
     if (isNewConversation) {
@@ -206,10 +235,8 @@ function useSuggestion(key: (typeof suggestionKeys)[number]) {
 }
 
 function conversationAccent(conversation: Conversation): string {
-  const subject = conversation.subjectName
-    ? mockSubjects.find((s) => s.name === conversation.subjectName)
-    : undefined
-  return subject ? accentColor(subject.accent) : 'var(--color-muted)'
+  const subject = subjectsStore.byId(conversation.subjectId)
+  return subject ? accentColor(subjectAccentOf(subject.color)) : 'var(--color-muted)'
 }
 
 async function renameConversationAction(conversation: Conversation) {
@@ -365,6 +392,14 @@ async function confirmDelete() {
       </div>
 
       <div class="composer">
+        <div class="composer-context">
+          <SubjectPicker
+            v-model="selectedSubjectId"
+            size="small"
+            :placeholder="t('aiTutor.subjectContext')"
+            class="context-picker"
+          />
+        </div>
         <div class="composer-box">
           <textarea
             v-model="draft"
@@ -711,6 +746,17 @@ async function confirmDelete() {
 /* Composer */
 .composer {
   padding: var(--space-4) var(--space-8) var(--space-6);
+}
+
+.composer-context {
+  display: flex;
+  justify-content: flex-end;
+  max-width: 760px;
+  margin: 0 auto var(--space-2);
+}
+
+.context-picker {
+  width: 220px;
 }
 
 .composer-box {

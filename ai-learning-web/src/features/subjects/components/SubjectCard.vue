@@ -1,11 +1,12 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AppCard, AppIcon, AppTag } from '@/components'
 import { useDuration } from '@/composables/useDuration'
-import { materialsOf } from '../mock'
-import { accentColor, type Subject } from '../types'
+import type { SubjectDto } from '@/api/modules/subject'
+import { accentColor, subjectAccentOf, subjectIconOf } from '../types'
 
-const props = defineProps<{ subject: Subject }>()
+const props = defineProps<{ subject: SubjectDto }>()
 
 defineEmits<{ open: [id: string] }>()
 
@@ -14,8 +15,8 @@ const { formatMinutes } = useDuration()
 
 const statusTone = { active: 'primary', completed: 'success', archived: 'secondary' } as const
 
-const accent = accentColor(props.subject.accent)
-const materialCount = materialsOf(props.subject.id).length
+const accent = computed(() => accentColor(subjectAccentOf(props.subject.color)))
+const icon = computed(() => subjectIconOf(props.subject.icon))
 </script>
 
 <template>
@@ -30,7 +31,7 @@ const materialCount = materialsOf(props.subject.id).length
   >
     <div class="head">
       <span class="icon-tile" :style="{ color: accent }" aria-hidden="true">
-        <AppIcon :name="subject.icon" size="lg" />
+        <AppIcon :name="icon" size="lg" />
       </span>
       <AppTag :tone="statusTone[subject.status]" size="sm">
         {{ t(`subjects.status.${subject.status}`) }}
@@ -38,7 +39,7 @@ const materialCount = materialsOf(props.subject.id).length
     </div>
 
     <h3 class="name">{{ subject.name }}</h3>
-    <p class="description">{{ subject.description }}</p>
+    <p class="description">{{ subject.description ?? '' }}</p>
 
     <div class="progress" :aria-label="t('subjects.progress')">
       <div class="progress-track">
@@ -53,7 +54,7 @@ const materialCount = materialsOf(props.subject.id).length
     <div class="meta">
       <span class="meta-item">
         <AppIcon name="layers" size="sm" />
-        {{ t('subjects.materials', { n: materialCount }) }}
+        {{ t('subjects.materials', { n: subject.materialCount }) }}
       </span>
       <span class="meta-item">
         <AppIcon name="clock" size="sm" />
@@ -99,6 +100,7 @@ const materialCount = materialsOf(props.subject.id).length
   font-size: var(--text-sm);
   line-height: var(--leading-normal);
   color: var(--color-text-secondary);
+  min-height: calc(2 * 1em * var(--leading-normal));
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;

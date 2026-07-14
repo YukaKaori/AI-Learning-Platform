@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import {
@@ -10,7 +10,6 @@ import {
   AppInput,
   AppSearch,
   AppSkeleton,
-  AppTag,
   AppTooltip,
 } from '@/components'
 import type { IconName } from '@/components'
@@ -18,13 +17,19 @@ import { createNote, deleteNote as apiDeleteNote, listNotes, updateNote } from '
 import type { NoteDto } from '@/api/modules/note'
 import { generateFlashcards, noteAiAction, type NoteAiAction } from '@/api/modules/ai'
 import { useAsync } from '@/composables/useAsync'
-import { getSubject } from '@/features/subjects/mock'
-import { accentColor } from '@/features/subjects/types'
+import { useSubjectsStore } from '@/stores/subjects'
+import SubjectPicker from '@/features/subjects/components/SubjectPicker.vue'
+import { accentColor, subjectAccentOf } from '@/features/subjects/types'
 import { excerptOf, outlineOf, type Note } from './types'
 
 const { t, d } = useI18n()
 const route = useRoute()
 const router = useRouter()
+const subjectsStore = useSubjectsStore()
+
+onMounted(() => {
+  void subjectsStore.load()
+})
 
 function toLocalNote(dto: NoteDto): Note {
   return {
@@ -71,7 +76,7 @@ watch(
 )
 
 function subjectOf(subjectId?: string) {
-  return subjectId ? getSubject(subjectId) : undefined
+  return subjectsStore.byId(subjectId)
 }
 
 // --- Persistence --------------------------------------------------------
@@ -114,6 +119,19 @@ async function togglePin() {
   if (!note) return
   note.pinned = !note.pinned
   await saveNote()
+}
+
+/** Links/unlinks the selected note; `null` maps to the `''` unlink sentinel. */
+async function changeSubject(subjectId: string | null) {
+  const note = selected.value
+  if (!note || (note.subjectId ?? null) === subjectId) return
+  try {
+    const updated = await updateNote(note.id, { subjectId: subjectId ?? '' })
+    note.subjectId = updated.subjectId ?? undefined
+    note.updatedAt = updated.updatedAt
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 const deleteTarget = ref<Note | null>(null)
@@ -278,7 +296,7 @@ function goToFlashcards() {
               <span
                 v-if="subjectOf(note.subjectId)"
                 class="note-subject"
-                :style="{ color: accentColor(subjectOf(note.subjectId)!.accent) }"
+                :style="{ color: accentColor(subjectAccentOf(subjectOf(note.subjectId)!.color)) }"
               >
                 {{ subjectOf(note.subjectId)!.name }}
               </span>
@@ -298,11 +316,12 @@ function goToFlashcards() {
         <header class="editor-head">
           <AppInput v-model="selected.title" class="editor-title-input" size="lg" @blur="saveNote" />
           <div class="editor-meta">
-            <AppTag
-              v-if="subjectOf(selected.subjectId)"
-              size="sm"
-              tone="secondary"
-            >{{ subjectOf(selected.subjectId)!.name }}</AppTag>
+            <SubjectPicker
+              :model-value="selected.subjectId ?? null"
+              size="small"
+              class="editor-subject-picker"
+              @update:model-value="changeSubject"
+            />
             <span class="editor-date">
               {{ saving ? t('notes.saving') : t('notes.updated', { time: d(selected.updatedAt, 'long') }) }}
             </span>
@@ -615,6 +634,11 @@ function goToFlashcards() {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+.editor-subject-picker {
+  width: 200px;
+  flex-shrink: 0;
 }
 
 .editor-date {

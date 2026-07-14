@@ -1,11 +1,32 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { AppButton, AppCard, AppDialog, AppEmpty, AppIcon, AppInput, AppPageHeader, AppTag } from '@/components'
+import {
+  AppButton,
+  AppCard,
+  AppDialog,
+  AppEmpty,
+  AppIcon,
+  AppInput,
+  AppPageHeader,
+  AppSkeleton,
+  AppTag,
+  AppTooltip,
+} from '@/components'
+import { useAsync } from '@/composables/useAsync'
 import { useDuration } from '@/composables/useDuration'
+import { useSubjectsStore } from '@/stores/subjects'
 import { excerptOf } from '@/features/notes/types'
-import { mockNotes } from '@/features/notes/mock'
+import { listNotes } from '@/api/modules/note'
+import {
+  createMaterial,
+  deleteMaterial as apiDeleteMaterial,
+  listMaterials,
+  updateMaterial,
+  type MaterialDto,
+  type MaterialType,
+} from '@/api/modules/material'
 import {
   createConversation,
   generateExplain,
@@ -17,26 +38,166 @@ import {
   type QuizResultDto,
   type StudyPlanResultDto,
 } from '@/api/modules/ai'
-import { getSubject, materialsOf } from './mock'
-import { accentColor, MATERIAL_TYPE_ICON } from './types'
+import { toApiError } from '@/api/types'
+import SubjectFormDialog from './components/SubjectFormDialog.vue'
+import { accentColor, MATERIAL_TYPE_ICON, subjectAccentOf } from './types'
 
 const { t, d } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const { formatMinutes } = useDuration()
+const subjectsStore = useSubjectsStore()
 
-const subject = computed(() => getSubject(String(route.params.id)))
-const materials = computed(() => (subject.value ? materialsOf(subject.value.id) : []))
-const relatedNotes = computed(() =>
-  subject.value ? mockNotes.filter((n) => n.subjectId === subject.value!.id) : [],
-)
+onMounted(() => {
+  void subjectsStore.load()
+})
+
+const subjectId = computed(() => String(route.params.id))
+const subject = computed(() => subjectsStore.byId(subjectId.value))
+const accent = computed(() => accentColor(subjectAccentOf(subject.value?.color)))
+const showSkeleton = computed(() => subjectsStore.loading && !subjectsStore.loaded)
 
 const statusTone = { active: 'primary', completed: 'success', archived: 'secondary' } as const
 
-// --- AI actions -----------------------------------------------------------
-// Every call reuses the existing /v1/ai/generate/* + /v1/ai/conversations
-// endpoints — the subject's name/description are sent as plain client-supplied
-// context fields (subjects are still mock-data-only, see docs/ai-engine.md).
+// --- Materials (metadata + external links; upload arrives with OSS, D8) ----
+
+const {
+  data: materialData,
+  loading: materialsLoading,
+  error: materialsError,
+  reload: reloadMaterials,
+} = useAsync(() => listMaterials(subjectId.value))
+
+// Local working copy the CRUD dialogs mutate; rebuilt when a load completes.
+const materials = ref<MaterialDto[]>([])
+
+watch(materialData, (list) => {
+  if (list) materials.value = [...list]
+})
+
+watch(subjectId, () => {
+  void reloadMaterials()
+})
+
+const MATERIAL_TYPES: MaterialType[] = ['link', 'article', 'video', 'pdf', 'markdown', 'document']
+
+interface MaterialFormState {
+  mode: 'create' | 'edit'
+  id?: string
+  title: string
+  type: MaterialType
+  description: string
+  sourceUrl: string
+}
+
+const materialForm = ref<MaterialFormState | null>(null)
+const materialSaving = ref(false)
+const materialErrorKey = ref<string | null>(null)
+
+function openCreateMaterial() {
+  materialErrorKey.value = null
+  materialForm.value = { mode: 'create', title: '', type: 'link', description: '', sourceUrl: '' }
+}
+
+function openEditMaterial(material: MaterialDto) {
+  materialErrorKey.value = null
+  materialForm.value = {
+    mode: 'edit',
+    id: material.id,
+    title: material.title,
+    type: material.type,
+    description: material.description ?? '',
+    sourceUrl: material.sourceUrl ?? '',
+  }
+}
+
+/** Keeps the cached subject's derived counts honest after material changes. */
+function refreshSubjectCounts() {
+  subjectsStore.refresh(subjectId.value).catch((error) => console.error(error))
+}
+
+async function submitMaterialForm() {
+  const form = materialForm.value
+  if (!form || !form.title.trim() || materialSaving.value) return
+  materialSaving.value = true
+  materialErrorKey.value = null
+  try {
+    if (form.mode === 'create') {
+      const created = await createMaterial(subjectId.value, {
+        title: form.title.trim(),
+        type: form.type,
+        description: form.description.trim() || undefined,
+        sourceUrl: form.sourceUrl.trim() || undefined,
+      })
+      materials.value.unshift(created)
+      refreshSubjectCounts()
+    } else if (form.id) {
+      const updated = await updateMaterial(form.id, {
+        title: form.title.trim(),
+        type: form.type,
+        description: form.description.trim(),
+        sourceUrl: form.sourceUrl.trim(),
+      })
+      const index = materials.value.findIndex((material) => material.id === form.id)
+      if (index >= 0) materials.value[index] = updated
+    }
+    materialForm.value = null
+  } catch (caught) {
+    materialErrorKey.value = toApiError(caught).messageKey
+  } finally {
+    materialSaving.value = false
+  }
+}
+
+const materialDeleteTarget = ref<MaterialDto | null>(null)
+
+async function confirmDeleteMaterial() {
+  const target = materialDeleteTarget.value
+  if (!target) return
+  try {
+    await apiDeleteMaterial(target.id)
+    materials.value = materials.value.filter((material) => material.id !== target.id)
+    refreshSubjectCounts()
+  } catch (error) {
+    console.error(error)
+  } finally {
+    materialDeleteTarget.value = null
+  }
+}
+
+// --- Related notes ----------------------------------------------------------
+
+const { data: noteData } = useAsync(listNotes)
+
+const relatedNotes = computed(
+  () => noteData.value?.filter((note) => note.subjectId === subjectId.value) ?? [],
+)
+
+// --- Edit / delete subject --------------------------------------------------
+
+const editOpen = ref(false)
+const deleteOpen = ref(false)
+const deleteBusy = ref(false)
+const deleteErrorKey = ref<string | null>(null)
+
+async function confirmDeleteSubject() {
+  const s = subject.value
+  if (!s || deleteBusy.value) return
+  deleteBusy.value = true
+  deleteErrorKey.value = null
+  try {
+    await subjectsStore.remove(s.id)
+    router.push({ name: 'subjects' })
+  } catch (caught) {
+    deleteErrorKey.value = toApiError(caught).messageKey
+  } finally {
+    deleteBusy.value = false
+  }
+}
+
+// --- AI actions -------------------------------------------------------------
+// "Ask AI" links the conversation to the real subject (server-side context
+// resolution); the generation endpoints stay hint-based (name/description).
 
 type AiActionKey = 'askAi' | 'summary' | 'quiz' | 'flashcards' | 'studyPlan' | 'explain' | 'suggestions'
 
@@ -63,7 +224,7 @@ async function askAi() {
   if (!s || aiBusy.value) return
   aiBusy.value = 'askAi'
   try {
-    const created = await createConversation({ subjectName: s.name })
+    const created = await createConversation({ subjectId: s.id })
     router.push({ name: 'ai-tutor', params: { conversationId: created.id } })
   } catch (error) {
     console.error(error)
@@ -79,7 +240,7 @@ async function generateSubjectSummary() {
   try {
     const result = await generateSummary({
       subjectName: s.name,
-      subjectDescription: s.description,
+      subjectDescription: s.description ?? undefined,
       text: subjectContextText(),
     })
     textResult.value = { key: 'summary', title: t('subjects.detail.ai.summary'), text: result.content }
@@ -95,7 +256,10 @@ async function generateSubjectSuggestions() {
   if (!s || aiBusy.value) return
   aiBusy.value = 'suggestions'
   try {
-    const result = await generateSuggestions({ subjectName: s.name, subjectDescription: s.description })
+    const result = await generateSuggestions({
+      subjectName: s.name,
+      subjectDescription: s.description ?? undefined,
+    })
     textResult.value = { key: 'suggestions', title: t('subjects.detail.ai.suggestions'), text: result.content }
   } catch (error) {
     console.error(error)
@@ -112,7 +276,7 @@ async function explainSubject() {
     const result = await generateExplain({
       topic: s.name,
       subjectName: s.name,
-      subjectDescription: s.description,
+      subjectDescription: s.description ?? undefined,
     })
     textResult.value = { key: 'explain', title: t('subjects.detail.ai.explain'), text: result.content }
   } catch (error) {
@@ -129,7 +293,7 @@ async function generateSubjectQuiz() {
   try {
     quizResult.value = await generateQuiz({
       subjectName: s.name,
-      subjectDescription: s.description,
+      subjectDescription: s.description ?? undefined,
       text: subjectContextText(),
     })
   } catch (error) {
@@ -146,10 +310,10 @@ async function generateSubjectFlashcards() {
   try {
     const deck = await generateFlashcards({
       subjectName: s.name,
-      subjectDescription: s.description,
+      subjectDescription: s.description ?? undefined,
       text: subjectContextText(),
       deckName: s.name,
-      deckDescription: s.description,
+      deckDescription: s.description ?? undefined,
     })
     flashcardsResult.value = { deckName: deck.name, cardCount: deck.cardCount }
   } catch (error) {
@@ -202,8 +366,26 @@ async function submitStudyPlan() {
 
 <template>
   <div class="page">
-    <template v-if="subject">
-      <AppPageHeader :title="subject.name" :subtitle="subject.description">
+    <div v-if="showSkeleton" aria-hidden="true">
+      <AppSkeleton variant="text" :lines="2" width="40%" />
+      <AppSkeleton variant="block" height="120px" class="skeleton-block" />
+      <AppSkeleton variant="block" height="260px" class="skeleton-block" />
+    </div>
+
+    <AppEmpty
+      v-else-if="subjectsStore.error"
+      icon="alert-circle"
+      :title="t(subjectsStore.error.messageKey)"
+    >
+      <template #action>
+        <AppButton size="sm" variant="soft" @click="subjectsStore.load(true)">
+          {{ t('common.retry') }}
+        </AppButton>
+      </template>
+    </AppEmpty>
+
+    <template v-else-if="subject">
+      <AppPageHeader :title="subject.name" :subtitle="subject.description ?? ''">
         <template #breadcrumb>
           <RouterLink :to="{ name: 'subjects' }" class="back-link">
             <AppIcon name="arrow-left" size="sm" />
@@ -214,6 +396,26 @@ async function submitStudyPlan() {
           <AppTag :tone="statusTone[subject.status]">
             {{ t(`subjects.status.${subject.status}`) }}
           </AppTag>
+          <AppTooltip :content="t('subjects.detail.edit')">
+            <AppButton
+              variant="ghost"
+              tone="secondary"
+              size="sm"
+              icon-left="pencil"
+              :aria-label="t('subjects.detail.edit')"
+              @click="editOpen = true"
+            />
+          </AppTooltip>
+          <AppTooltip :content="t('subjects.detail.delete')">
+            <AppButton
+              variant="ghost"
+              tone="danger"
+              size="sm"
+              icon-left="trash"
+              :aria-label="t('subjects.detail.delete')"
+              @click="deleteOpen = true"
+            />
+          </AppTooltip>
         </template>
       </AppPageHeader>
 
@@ -225,10 +427,7 @@ async function submitStudyPlan() {
               <div class="progress-track">
                 <div
                   class="progress-fill"
-                  :style="{
-                    width: `${subject.progress}%`,
-                    backgroundColor: accentColor(subject.accent),
-                  }"
+                  :style="{ width: `${subject.progress}%`, backgroundColor: accent }"
                 ></div>
               </div>
               <span class="overview-value">{{ subject.progress }}%</span>
@@ -240,7 +439,7 @@ async function submitStudyPlan() {
           </div>
           <div class="overview-item">
             <span class="overview-label">{{ t('subjects.detail.materials') }}</span>
-            <span class="overview-value">{{ materials.length }}</span>
+            <span class="overview-value">{{ subject.materialCount }}</span>
           </div>
         </div>
       </AppCard>
@@ -325,19 +524,57 @@ async function submitStudyPlan() {
       <section class="section">
         <div class="section-head">
           <h2 class="section-title">{{ t('subjects.detail.materials') }}</h2>
-          <AppButton variant="soft" size="sm" icon-left="plus" disabled>
-            {{ t('subjects.detail.addMaterial') }}
-          </AppButton>
+          <div class="section-actions">
+            <AppTooltip :content="t('subjects.detail.upload')">
+              <AppButton
+                variant="ghost"
+                tone="secondary"
+                size="sm"
+                icon-left="upload"
+                disabled
+                :aria-label="t('subjects.detail.upload')"
+              />
+            </AppTooltip>
+            <AppButton variant="soft" size="sm" icon-left="plus" @click="openCreateMaterial">
+              {{ t('subjects.detail.addMaterial') }}
+            </AppButton>
+          </div>
         </div>
 
-        <AppEmpty v-if="materials.length === 0" :title="t('subjects.detail.noMaterials')" />
+        <div v-if="materialsLoading" class="material-state" aria-hidden="true">
+          <AppSkeleton :lines="3" />
+        </div>
+        <AppEmpty v-else-if="materialsError" icon="alert-circle" :title="t(materialsError.messageKey)">
+          <template #action>
+            <AppButton size="sm" variant="soft" @click="reloadMaterials">
+              {{ t('common.retry') }}
+            </AppButton>
+          </template>
+        </AppEmpty>
+        <AppEmpty v-else-if="materials.length === 0" :title="t('subjects.detail.noMaterials')">
+          <template #action>
+            <AppButton size="sm" variant="soft" icon-left="plus" @click="openCreateMaterial">
+              {{ t('subjects.detail.addMaterial') }}
+            </AppButton>
+          </template>
+        </AppEmpty>
         <ul v-else class="material-list">
           <li v-for="material in materials" :key="material.id" class="material-row">
-            <span class="material-icon" :style="{ color: accentColor(subject.accent) }">
+            <span class="material-icon" :style="{ color: accent }">
               <AppIcon :name="MATERIAL_TYPE_ICON[material.type]" />
             </span>
             <div class="material-main">
-              <span class="material-title">{{ material.title }}</span>
+              <a
+                v-if="material.sourceUrl"
+                :href="material.sourceUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="material-title material-link"
+              >
+                {{ material.title }}
+                <AppIcon name="external-link" size="sm" :label="t('subjects.detail.openLink')" />
+              </a>
+              <span v-else class="material-title">{{ material.title }}</span>
               <span v-if="material.description" class="material-desc">
                 {{ material.description }}
               </span>
@@ -345,7 +582,29 @@ async function submitStudyPlan() {
             <AppTag size="sm" tone="secondary">
               {{ t(`subjects.materialType.${material.type}`) }}
             </AppTag>
-            <span class="material-date">{{ d(material.addedAt, 'short') }}</span>
+            <span class="material-date">{{ d(material.createdAt, 'short') }}</span>
+            <div class="material-actions">
+              <AppTooltip :content="t('subjects.detail.editMaterial')">
+                <AppButton
+                  variant="ghost"
+                  tone="secondary"
+                  size="sm"
+                  icon-left="pencil"
+                  :aria-label="t('subjects.detail.editMaterial')"
+                  @click="openEditMaterial(material)"
+                />
+              </AppTooltip>
+              <AppTooltip :content="t('subjects.detail.deleteMaterial')">
+                <AppButton
+                  variant="ghost"
+                  tone="danger"
+                  size="sm"
+                  icon-left="trash"
+                  :aria-label="t('subjects.detail.deleteMaterial')"
+                  @click="materialDeleteTarget = material"
+                />
+              </AppTooltip>
+            </div>
           </li>
         </ul>
       </section>
@@ -369,6 +628,89 @@ async function submitStudyPlan() {
           </AppCard>
         </div>
       </section>
+
+      <SubjectFormDialog v-model="editOpen" :subject="subject" />
+
+      <AppDialog v-model="deleteOpen" :title="t('subjects.deleteConfirm.title')" width="440px">
+        <p>{{ t('subjects.deleteConfirm.body', { name: subject.name }) }}</p>
+        <p v-if="deleteErrorKey" class="dialog-error" role="alert">{{ t(deleteErrorKey) }}</p>
+        <template #footer>
+          <AppButton variant="soft" tone="secondary" @click="deleteOpen = false">
+            {{ t('common.cancel') }}
+          </AppButton>
+          <AppButton tone="danger" :loading="deleteBusy" @click="confirmDeleteSubject">
+            {{ t('common.delete') }}
+          </AppButton>
+        </template>
+      </AppDialog>
+
+      <AppDialog
+        :model-value="materialForm !== null"
+        :title="materialForm?.mode === 'create' ? t('subjects.detail.materialDialog.createTitle') : t('subjects.detail.materialDialog.editTitle')"
+        width="480px"
+        @update:model-value="(open) => { if (!open) materialForm = null }"
+      >
+        <div v-if="materialForm" class="form">
+          <AppInput
+            v-model="materialForm.title"
+            :label="t('subjects.detail.materialDialog.title')"
+            :placeholder="t('subjects.detail.materialDialog.titlePlaceholder')"
+          />
+          <div class="form-field">
+            <label class="form-label">{{ t('subjects.detail.materialDialog.type') }}</label>
+            <el-select v-model="materialForm.type">
+              <el-option
+                v-for="type in MATERIAL_TYPES"
+                :key="type"
+                :value="type"
+                :label="t(`subjects.materialType.${type}`)"
+              />
+            </el-select>
+          </div>
+          <AppInput
+            v-model="materialForm.sourceUrl"
+            :label="t('subjects.detail.materialDialog.sourceUrl')"
+            :placeholder="t('subjects.detail.materialDialog.sourceUrlPlaceholder')"
+          />
+          <div class="form-field">
+            <label class="form-label">{{ t('subjects.detail.materialDialog.description') }}</label>
+            <textarea
+              v-model="materialForm.description"
+              class="form-textarea"
+              rows="3"
+              :placeholder="t('subjects.detail.materialDialog.descriptionPlaceholder')"
+            ></textarea>
+          </div>
+          <p v-if="materialErrorKey" class="dialog-error" role="alert">{{ t(materialErrorKey) }}</p>
+        </div>
+        <template #footer>
+          <AppButton variant="soft" tone="secondary" @click="materialForm = null">
+            {{ t('common.cancel') }}
+          </AppButton>
+          <AppButton
+            :loading="materialSaving"
+            :disabled="!materialForm?.title.trim()"
+            @click="submitMaterialForm"
+          >
+            {{ materialForm?.mode === 'create' ? t('common.create') : t('common.save') }}
+          </AppButton>
+        </template>
+      </AppDialog>
+
+      <AppDialog
+        :model-value="materialDeleteTarget !== null"
+        :title="t('subjects.detail.materialDeleteConfirm.title')"
+        width="420px"
+        @update:model-value="(open) => { if (!open) materialDeleteTarget = null }"
+      >
+        <p>{{ t('subjects.detail.materialDeleteConfirm.body', { title: materialDeleteTarget?.title ?? '' }) }}</p>
+        <template #footer>
+          <AppButton variant="soft" tone="secondary" @click="materialDeleteTarget = null">
+            {{ t('common.cancel') }}
+          </AppButton>
+          <AppButton tone="danger" @click="confirmDeleteMaterial">{{ t('common.delete') }}</AppButton>
+        </template>
+      </AppDialog>
 
       <AppDialog
         :model-value="textResult !== null"
@@ -514,6 +856,10 @@ async function submitStudyPlan() {
   padding: var(--space-8);
 }
 
+.skeleton-block {
+  margin-top: var(--space-6);
+}
+
 .back-link {
   display: inline-flex;
   align-items: center;
@@ -588,11 +934,21 @@ async function submitStudyPlan() {
   margin-bottom: var(--space-4);
 }
 
+.section-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
 .section-title {
   margin: 0;
   font-size: var(--font-title-size);
   font-weight: var(--font-title-weight);
   letter-spacing: var(--font-title-tracking);
+}
+
+.material-state {
+  padding: var(--space-4) 0;
 }
 
 .material-list {
@@ -648,6 +1004,19 @@ async function submitStudyPlan() {
   white-space: nowrap;
 }
 
+.material-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.material-link:hover {
+  color: var(--color-primary);
+  text-decoration: underline;
+}
+
 .material-desc {
   font-size: var(--text-xs);
   color: var(--color-text-tertiary);
@@ -661,6 +1030,20 @@ async function submitStudyPlan() {
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-text-tertiary);
+}
+
+.material-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.material-row:hover .material-actions,
+.material-row:focus-within .material-actions {
+  opacity: 1;
 }
 
 .note-grid {
@@ -787,6 +1170,56 @@ async function submitStudyPlan() {
   padding-left: var(--space-5);
 }
 
+/* Forms */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.form-label {
+  font-size: var(--font-label-size);
+  font-weight: var(--font-label-weight);
+  color: var(--color-text-secondary);
+}
+
+.form-textarea {
+  padding: var(--space-2) var(--space-3);
+  border: var(--border-width-sm) solid var(--color-border);
+  border-radius: var(--radius-input);
+  background-color: var(--color-surface);
+  font-family: inherit;
+  font-size: var(--text-sm);
+  line-height: var(--leading-normal);
+  color: var(--color-text);
+  resize: vertical;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-soft);
+}
+
+.form-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.dialog-error {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
 @media (max-width: 640px) {
   .page {
     padding: var(--space-5);
@@ -795,6 +1228,10 @@ async function submitStudyPlan() {
   .overview-grid {
     grid-template-columns: 1fr;
     gap: var(--space-4);
+  }
+
+  .material-actions {
+    opacity: 1;
   }
 }
 </style>

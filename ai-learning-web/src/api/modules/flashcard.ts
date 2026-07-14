@@ -19,15 +19,32 @@ export interface FlashcardDto {
   dueAt: number | null
 }
 
+/** `subjectId` must reference a subject owned by the caller. */
+export interface CreateDeckPayload {
+  name: string
+  description?: string
+  subjectId?: string
+}
+
+/**
+ * Partial update — omitted fields keep their value; `subjectId: ''` unlinks
+ * the deck from its subject.
+ */
+export interface UpdateDeckPayload {
+  name?: string
+  description?: string
+  subjectId?: string
+}
+
 export function listDecks() {
   return api.get<FlashcardDeckDto[]>('/v1/flashcards/decks')
 }
 
-export function createDeck(payload: { name: string; description?: string }) {
+export function createDeck(payload: CreateDeckPayload) {
   return api.post<FlashcardDeckDto>('/v1/flashcards/decks', payload)
 }
 
-export function updateDeck(deckId: string, payload: { name?: string; description?: string }) {
+export function updateDeck(deckId: string, payload: UpdateDeckPayload) {
   return api.put<FlashcardDeckDto>(`/v1/flashcards/decks/${deckId}`, payload)
 }
 

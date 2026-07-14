@@ -19,10 +19,9 @@ export interface ChatMessage {
 export interface Conversation {
   id: string
   title: string
-  /**
-   * Snapshot of the subject name the chat was started from — not a real
-   * subjectId FK. Subjects are still frontend-mock-only; see docs/ai-engine.md.
-   */
+  /** Linked subject id (real FK since Phase 7; see docs/ai-engine.md). */
+  subjectId?: string
+  /** Display snapshot of the linked subject's name, taken when linked. */
   subjectName?: string
   archived?: boolean
   /** Epoch ms of the last message. */

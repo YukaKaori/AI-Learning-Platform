@@ -24,3 +24,15 @@ export class ApiError extends Error {
     this.messageKey = messageKey
   }
 }
+
+/**
+ * Normalizes any thrown value to an ApiError so error surfaces can always
+ * render `t(error.messageKey)`. The http layer already rejects with ApiError;
+ * this covers everything else (programming errors, non-axios rejections).
+ */
+export function toApiError(caught: unknown): ApiError {
+  if (caught instanceof ApiError) {
+    return caught
+  }
+  return new ApiError(-1, caught instanceof Error ? caught.message : String(caught), 'error.unknown')
+}

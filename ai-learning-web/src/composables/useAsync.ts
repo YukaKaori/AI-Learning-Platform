@@ -1,5 +1,5 @@
 import { ref, shallowRef, type Ref, type ShallowRef } from 'vue'
-import { ApiError } from '@/api/types'
+import { toApiError, type ApiError } from '@/api/types'
 
 export interface UseAsyncState<T> {
   /** Last successful result; null until the first load resolves. */
@@ -39,10 +39,7 @@ export function useAsync<T>(task: () => Promise<T>): UseAsyncState<T> {
       data.value = result
     } catch (caught) {
       if (run !== latestRun) return
-      error.value =
-        caught instanceof ApiError
-          ? caught
-          : new ApiError(-1, caught instanceof Error ? caught.message : String(caught), 'error.unknown')
+      error.value = toApiError(caught)
     } finally {
       if (run === latestRun) {
         loading.value = false
