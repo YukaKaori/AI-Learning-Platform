@@ -12,6 +12,7 @@ import com.yuka.ailearningserver.flashcard.entity.Flashcard;
 import com.yuka.ailearningserver.flashcard.entity.FlashcardDeck;
 import com.yuka.ailearningserver.flashcard.mapper.FlashcardDeckMapper;
 import com.yuka.ailearningserver.flashcard.mapper.FlashcardMapper;
+import com.yuka.ailearningserver.subject.SubjectService;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -22,10 +23,13 @@ public class FlashcardService {
 
     private final FlashcardDeckMapper deckMapper;
     private final FlashcardMapper cardMapper;
+    private final SubjectService subjectService;
 
-    public FlashcardService(FlashcardDeckMapper deckMapper, FlashcardMapper cardMapper) {
+    public FlashcardService(FlashcardDeckMapper deckMapper, FlashcardMapper cardMapper,
+                            SubjectService subjectService) {
         this.deckMapper = deckMapper;
         this.cardMapper = cardMapper;
+        this.subjectService = subjectService;
     }
 
     public List<DeckResponse> listDecks(Long userId) {
@@ -44,6 +48,7 @@ public class FlashcardService {
     public DeckResponse createDeck(Long userId, CreateDeckRequest request) {
         FlashcardDeck deck = new FlashcardDeck();
         deck.setUserId(userId);
+        deck.setSubjectId(subjectService.resolveOwnedSubjectId(userId, request.subjectId()));
         deck.setName(request.name());
         deck.setDescription(request.description());
         deckMapper.insert(deck);
@@ -57,6 +62,9 @@ public class FlashcardService {
         }
         if (request.description() != null) {
             deck.setDescription(request.description());
+        }
+        if (request.subjectId() != null) {
+            deck.setSubjectId(subjectService.resolveOwnedSubjectId(userId, request.subjectId()));
         }
         deckMapper.updateById(deck);
         return toDeckResponse(userId, deck);
@@ -110,7 +118,7 @@ public class FlashcardService {
     /** Used by AiGenerationService to persist an AI-generated deck in one call. */
     public DeckResponse createDeckFromGenerated(Long userId, String name, String description,
                                                  List<CreateCardRequest> cards) {
-        DeckResponse deck = createDeck(userId, new CreateDeckRequest(name, description));
+        DeckResponse deck = createDeck(userId, new CreateDeckRequest(name, description, null));
         Long deckId = Long.valueOf(deck.id());
         for (CreateCardRequest card : cards) {
             createCard(userId, deckId, card);

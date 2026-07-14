@@ -7,6 +7,7 @@ import com.yuka.ailearningserver.note.dto.NoteResponse;
 import com.yuka.ailearningserver.note.dto.UpdateNoteRequest;
 import com.yuka.ailearningserver.note.entity.Note;
 import com.yuka.ailearningserver.note.mapper.NoteMapper;
+import com.yuka.ailearningserver.subject.SubjectService;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -15,9 +16,11 @@ import java.util.List;
 public class NoteService {
 
     private final NoteMapper noteMapper;
+    private final SubjectService subjectService;
 
-    public NoteService(NoteMapper noteMapper) {
+    public NoteService(NoteMapper noteMapper, SubjectService subjectService) {
         this.noteMapper = noteMapper;
+        this.subjectService = subjectService;
     }
 
     public List<NoteResponse> list(Long userId) {
@@ -37,6 +40,7 @@ public class NoteService {
     public NoteResponse create(Long userId, CreateNoteRequest request) {
         Note note = new Note();
         note.setUserId(userId);
+        note.setSubjectId(subjectService.resolveOwnedSubjectId(userId, request.subjectId()));
         note.setTitle(request.title());
         note.setContent(request.content());
         note.setPinned(Boolean.TRUE.equals(request.pinned()));
@@ -54,6 +58,9 @@ public class NoteService {
         }
         if (request.pinned() != null) {
             note.setPinned(request.pinned());
+        }
+        if (request.subjectId() != null) {
+            note.setSubjectId(subjectService.resolveOwnedSubjectId(userId, request.subjectId()));
         }
         noteMapper.updateById(note);
         return NoteResponse.from(note);

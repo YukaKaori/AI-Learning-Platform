@@ -6,11 +6,19 @@ import com.yuka.ailearningserver.ai.mapper.AiConversationMapper;
 import com.yuka.ailearningserver.calendar.entity.StudySession;
 import com.yuka.ailearningserver.calendar.mapper.StudySessionMapper;
 import com.yuka.ailearningserver.common.exception.BusinessException;
+import com.yuka.ailearningserver.flashcard.FlashcardService;
+import com.yuka.ailearningserver.flashcard.dto.CreateDeckRequest;
+import com.yuka.ailearningserver.flashcard.dto.DeckResponse;
+import com.yuka.ailearningserver.flashcard.dto.UpdateDeckRequest;
 import com.yuka.ailearningserver.material.MaterialService;
 import com.yuka.ailearningserver.material.dto.CreateMaterialRequest;
 import com.yuka.ailearningserver.material.dto.MaterialResponse;
 import com.yuka.ailearningserver.material.entity.LearningMaterial;
 import com.yuka.ailearningserver.material.mapper.LearningMaterialMapper;
+import com.yuka.ailearningserver.note.NoteService;
+import com.yuka.ailearningserver.note.dto.CreateNoteRequest;
+import com.yuka.ailearningserver.note.dto.NoteResponse;
+import com.yuka.ailearningserver.note.dto.UpdateNoteRequest;
 import com.yuka.ailearningserver.note.entity.Note;
 import com.yuka.ailearningserver.note.mapper.NoteMapper;
 import com.yuka.ailearningserver.subject.dto.CreateSubjectRequest;
@@ -44,6 +52,10 @@ class SubjectServiceTest {
     private SubjectService subjectService;
     @Autowired
     private MaterialService materialService;
+    @Autowired
+    private NoteService noteService;
+    @Autowired
+    private FlashcardService flashcardService;
     @Autowired
     private NoteMapper noteMapper;
     @Autowired
@@ -150,6 +162,37 @@ class SubjectServiceTest {
         assertThat(keptConversation).isNotNull();
         assertThat(keptConversation.getSubjectId()).isNull();
         assertThat(keptConversation.getSubjectName()).isEqualTo("Algorithms");
+    }
+
+    @Test
+    void noteAndDeckSubjectLinkage() {
+        SubjectResponse mine = subjectService.create(USER,
+                new CreateSubjectRequest("Linked", null, null, null));
+        SubjectResponse theirs = subjectService.create(OTHER_USER,
+                new CreateSubjectRequest("Theirs", null, null, null));
+
+        NoteResponse note = noteService.create(USER,
+                new CreateNoteRequest("linked note", "body", null, mine.id()));
+        assertThat(note.subjectId()).isEqualTo(mine.id());
+        DeckResponse deck = flashcardService.createDeck(USER,
+                new CreateDeckRequest("linked deck", null, mine.id()));
+        assertThat(deck.subjectId()).isEqualTo(mine.id());
+
+        // A subject owned by another user must be rejected.
+        assertThatThrownBy(() -> noteService.create(USER,
+                new CreateNoteRequest("bad", null, null, theirs.id())))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(SubjectErrorCode.SUBJECT_ACCESS_DENIED));
+        assertThatThrownBy(() -> flashcardService.createDeck(USER,
+                new CreateDeckRequest("bad", null, theirs.id())))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        e -> assertThat(e.getErrorCode()).isEqualTo(SubjectErrorCode.SUBJECT_ACCESS_DENIED));
+
+        // The "" sentinel unlinks, and the cleared value is persisted.
+        noteService.update(USER, Long.valueOf(note.id()), new UpdateNoteRequest(null, null, null, ""));
+        assertThat(noteService.get(USER, Long.valueOf(note.id())).subjectId()).isNull();
+        flashcardService.updateDeck(USER, Long.valueOf(deck.id()), new UpdateDeckRequest(null, null, ""));
+        assertThat(flashcardService.getDeck(USER, Long.valueOf(deck.id())).subjectId()).isNull();
     }
 
     private Note insertNote(Long userId, Long subjectId) {

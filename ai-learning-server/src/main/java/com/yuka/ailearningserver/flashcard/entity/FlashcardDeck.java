@@ -1,5 +1,7 @@
 package com.yuka.ailearningserver.flashcard.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.yuka.ailearningserver.common.entity.BaseEntity;
 import lombok.Getter;
@@ -21,7 +23,12 @@ public class FlashcardDeck extends BaseEntity {
     /** Logical FK → users.id. */
     private Long userId;
 
-    /** Logical FK → subjects.id; null for subject-independent decks. */
+    /**
+     * Logical FK → subjects.id; null for subject-independent decks. Update
+     * strategy ALWAYS so unlinking (setting null) persists via
+     * {@code updateById} — services always load the row before updating it.
+     */
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long subjectId;
 
     private String name;

@@ -2,6 +2,7 @@ package com.yuka.ailearningserver.material;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.yuka.ailearningserver.common.OwnershipGuard;
+import com.yuka.ailearningserver.common.exception.BusinessException;
 import com.yuka.ailearningserver.material.dto.CreateMaterialRequest;
 import com.yuka.ailearningserver.material.dto.MaterialResponse;
 import com.yuka.ailearningserver.material.dto.UpdateMaterialRequest;
@@ -47,7 +48,7 @@ public class MaterialService {
         material.setSubjectId(subjectId);
         material.setUserId(userId);
         material.setTitle(request.title());
-        material.setType(MaterialType.valueOf(request.type().toUpperCase(Locale.ROOT)));
+        material.setType(parseType(request.type()));
         material.setDescription(request.description());
         material.setSourceUrl(request.sourceUrl());
         materialMapper.insert(material);
@@ -60,7 +61,7 @@ public class MaterialService {
             material.setTitle(request.title());
         }
         if (request.type() != null) {
-            material.setType(MaterialType.valueOf(request.type().toUpperCase(Locale.ROOT)));
+            material.setType(parseType(request.type()));
         }
         if (request.description() != null) {
             material.setDescription(request.description());
@@ -75,6 +76,14 @@ public class MaterialService {
     public void delete(Long userId, Long id) {
         LearningMaterial material = requireOwned(userId, id);
         materialMapper.deleteById(material.getId());
+    }
+
+    private static MaterialType parseType(String value) {
+        try {
+            return MaterialType.valueOf(value.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(MaterialErrorCode.MATERIAL_TYPE_INVALID);
+        }
     }
 
     private LearningMaterial requireOwned(Long userId, Long id) {

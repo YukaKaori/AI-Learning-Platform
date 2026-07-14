@@ -7,6 +7,7 @@ import com.yuka.ailearningserver.ai.mapper.AiConversationMapper;
 import com.yuka.ailearningserver.calendar.entity.StudySession;
 import com.yuka.ailearningserver.calendar.mapper.StudySessionMapper;
 import com.yuka.ailearningserver.common.OwnershipGuard;
+import com.yuka.ailearningserver.common.exception.BusinessException;
 import com.yuka.ailearningserver.flashcard.entity.FlashcardDeck;
 import com.yuka.ailearningserver.flashcard.mapper.FlashcardDeckMapper;
 import com.yuka.ailearningserver.material.entity.LearningMaterial;
@@ -108,7 +109,11 @@ public class SubjectService {
             subject.setDescription(request.description());
         }
         if (request.status() != null) {
-            subject.setStatus(SubjectStatus.valueOf(request.status().toUpperCase(Locale.ROOT)));
+            try {
+                subject.setStatus(SubjectStatus.valueOf(request.status().toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException e) {
+                throw new BusinessException(SubjectErrorCode.SUBJECT_STATUS_INVALID);
+            }
         }
         if (request.progress() != null) {
             subject.setProgress(request.progress());
@@ -151,6 +156,26 @@ public class SubjectService {
     public Subject requireOwned(Long userId, Long id) {
         return OwnershipGuard.require(subjectMapper.selectById(id), Subject::getUserId, userId,
                 SubjectErrorCode.SUBJECT_NOT_FOUND, SubjectErrorCode.SUBJECT_ACCESS_DENIED);
+    }
+
+    /**
+     * Resolves an optional wire subject id (string form, per the string-id API
+     * convention) to a validated owned subject id. Null or blank means "no
+     * subject" and resolves to null; anything else must reference a subject
+     * owned by {@code userId}. Shared by every feature with an optional
+     * subject link (notes, decks, tasks, sessions).
+     */
+    public Long resolveOwnedSubjectId(Long userId, String subjectId) {
+        if (subjectId == null || subjectId.isBlank()) {
+            return null;
+        }
+        long id;
+        try {
+            id = Long.parseLong(subjectId.trim());
+        } catch (NumberFormatException e) {
+            throw new BusinessException(SubjectErrorCode.SUBJECT_NOT_FOUND);
+        }
+        return requireOwned(userId, id).getId();
     }
 
     /**
