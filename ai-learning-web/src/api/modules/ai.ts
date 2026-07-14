@@ -1,10 +1,15 @@
 import { api } from '@/api/http'
 import type { FlashcardDeckDto } from './flashcard'
 
-/** Mirror of ConversationSummaryResponse.java. */
+/**
+ * Mirror of ConversationSummaryResponse.java. `subjectId` links the
+ * conversation to a real subject; `subjectName` is a display snapshot taken
+ * when the link was made (see docs/ai-engine.md).
+ */
 export interface ConversationSummaryDto {
   id: string
   title: string
+  subjectId: string | null
   subjectName: string | null
   archived: boolean
   updatedAt: number
@@ -28,8 +33,33 @@ export function listConversations() {
   return api.get<ConversationSummaryDto[]>('/v1/ai/conversations')
 }
 
-export function createConversation(payload: { title?: string; subjectName?: string } = {}) {
+/**
+ * Mirror of CreateConversationRequest.java. `subjectId` must reference a
+ * subject owned by the caller; when present the server persists the link and
+ * snapshots the real subject's name, ignoring the plain-text `subjectName`
+ * hint (kept for callers without an id).
+ */
+export interface CreateConversationPayload {
+  title?: string
+  subjectName?: string
+  subjectId?: string
+}
+
+export function createConversation(payload: CreateConversationPayload = {}) {
   return api.post<ConversationDetailDto>('/v1/ai/conversations', payload)
+}
+
+/**
+ * Mirror of SendMessageRequest.java — the body of the SSE send (posted by
+ * `ServerSseChatProvider`, not axios). `subjectId` follows the partial-update
+ * convention: omitted/null keeps the conversation's current link, `''`
+ * unlinks it. The name/description hints never override a resolved subject.
+ */
+export interface SendMessagePayload {
+  content: string
+  subjectName?: string
+  subjectDescription?: string
+  subjectId?: string
 }
 
 export function getConversation(id: string) {
@@ -50,7 +80,10 @@ export function deleteConversation(id: string) {
 
 // --- Generation -------------------------------------------------------------
 
-/** Client-supplied subject context — Subjects are mock-data-only, see docs/ai-engine.md. */
+/**
+ * Plain-text subject hints for the generation endpoints, which don't take a
+ * subject id — conversations do (see {@link SendMessagePayload}).
+ */
 export interface SubjectContext {
   subjectName?: string
   subjectDescription?: string

@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { AppButton, AppDialog, AppIcon, AppInput, AppSearch, AppTag, AppTooltip } from '@/components'
+import {
+  AppButton,
+  AppDialog,
+  AppEmpty,
+  AppIcon,
+  AppInput,
+  AppSearch,
+  AppSkeleton,
+  AppTag,
+  AppTooltip,
+} from '@/components'
 import type { IconName } from '@/components'
 import { createNote, deleteNote as apiDeleteNote, listNotes, updateNote } from '@/api/modules/note'
 import type { NoteDto } from '@/api/modules/note'
 import { generateFlashcards, noteAiAction, type NoteAiAction } from '@/api/modules/ai'
+import { useAsync } from '@/composables/useAsync'
 import { getSubject } from '@/features/subjects/mock'
 import { accentColor } from '@/features/subjects/types'
 import { excerptOf, outlineOf, type Note } from './types'
@@ -26,20 +37,17 @@ function toLocalNote(dto: NoteDto): Note {
   }
 }
 
+// Local working copy the editor mutates; rebuilt whenever a load completes.
 const notes = ref<Note[]>([])
-const loaded = ref(false)
 
-async function loadNotes() {
-  const list = await listNotes()
+const { data: noteList, loading, error, reload } = useAsync(listNotes)
+
+watch(noteList, (list) => {
+  if (!list) return
   notes.value = list.map(toLocalNote)
-  loaded.value = true
   if (!selectedId.value && notes.value.length > 0) {
     selectedId.value = notes.value[0]!.id
   }
-}
-
-onMounted(() => {
-  loadNotes().catch((error) => console.error(error))
 })
 
 const search = ref('')
@@ -244,7 +252,15 @@ function goToFlashcards() {
       <div class="list-search">
         <AppSearch v-model="search" :placeholder="t('notes.searchPlaceholder')" />
       </div>
-      <p v-if="loaded && filteredNotes.length === 0" class="list-empty">{{ t('notes.empty') }}</p>
+      <div v-if="loading" class="list-state">
+        <AppSkeleton :lines="6" />
+      </div>
+      <AppEmpty v-else-if="error" icon="alert-circle" :title="t(error.messageKey)">
+        <template #action>
+          <AppButton size="sm" variant="soft" @click="reload">{{ t('common.retry') }}</AppButton>
+        </template>
+      </AppEmpty>
+      <p v-else-if="filteredNotes.length === 0" class="list-empty">{{ t('notes.empty') }}</p>
       <ul v-else class="note-list">
         <li v-for="note in filteredNotes" :key="note.id">
           <button
@@ -455,6 +471,10 @@ function goToFlashcards() {
 
 .list-search {
   padding: 0 var(--space-4) var(--space-3);
+}
+
+.list-state {
+  padding: var(--space-4);
 }
 
 .list-empty {

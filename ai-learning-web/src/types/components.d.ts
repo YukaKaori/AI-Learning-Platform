@@ -36,5 +36,6 @@ declare module 'vue' {
     GlassScene: typeof import('./../components/experience/GlassScene.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    StatTile: typeof import('./../components/StatTile.vue')['default']
   }
 }

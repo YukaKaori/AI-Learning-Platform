@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
-import { AppButton, AppDialog, AppIcon, AppSearch, AppTooltip } from '@/components'
+import { AppButton, AppDialog, AppEmpty, AppIcon, AppSearch, AppSkeleton, AppTooltip } from '@/components'
 import {
   archiveConversation,
   createConversation,
@@ -11,6 +11,7 @@ import {
   listConversations,
   renameConversation,
 } from '@/api/modules/ai'
+import { useAsync } from '@/composables/useAsync'
 import { mockSubjects } from '@/features/subjects/mock'
 import { accentColor } from '@/features/subjects/types'
 import { ServerSseChatProvider, type ChatProvider } from './provider'
@@ -20,11 +21,20 @@ const { t, d } = useI18n()
 const route = useRoute()
 const router = useRouter()
 
+// Local working copy the chat mutates; rebuilt whenever a load completes
+// (already-loaded message threads are carried over).
 const conversations = ref<Conversation[]>([])
 
-async function loadConversations() {
-  const summaries = await listConversations()
-  conversations.value = summaries
+const {
+  data: summaries,
+  loading: listLoading,
+  error: listError,
+  reload: reloadConversations,
+} = useAsync(listConversations)
+
+watch(summaries, (list) => {
+  if (!list) return
+  conversations.value = list
     .filter((c) => !c.archived)
     .map((c) => ({
       id: c.id,
@@ -32,12 +42,11 @@ async function loadConversations() {
       subjectName: c.subjectName ?? undefined,
       archived: c.archived,
       updatedAt: c.updatedAt,
-      messages: [],
+      messages: conversations.value.find((existing) => existing.id === c.id)?.messages ?? [],
     }))
-}
-
-onMounted(() => {
-  loadConversations().catch((error) => console.error(error))
+  // A deep link can arrive before the list: the detail watcher found no row
+  // then, so retry once the conversation exists.
+  if (activeId.value) loadDetail(activeId.value)
 })
 
 const search = ref('')
@@ -63,26 +72,31 @@ watch(
 
 // Lazily load full message history the first time a conversation is opened.
 const loadedDetail = new Set<string>()
+
+async function loadDetail(id: string) {
+  if (loadedDetail.has(id)) return
+  const conversation = conversations.value.find((c) => c.id === id)
+  if (!conversation) return
+  loadedDetail.add(id)
+  try {
+    const detail = await getConversation(id)
+    conversation.title = detail.title
+    conversation.messages = detail.messages.map((message) => ({
+      id: message.id,
+      role: message.role === 'assistant' ? 'assistant' : 'user',
+      content: message.content,
+      createdAt: message.createdAt,
+    }))
+  } catch (error) {
+    loadedDetail.delete(id)
+    console.error(error)
+  }
+}
+
 watch(
   activeId,
-  async (id) => {
-    if (!id || loadedDetail.has(id)) return
-    const conversation = conversations.value.find((c) => c.id === id)
-    if (!conversation) return
-    loadedDetail.add(id)
-    try {
-      const detail = await getConversation(id)
-      conversation.title = detail.title
-      conversation.messages = detail.messages.map((message) => ({
-        id: message.id,
-        role: message.role === 'assistant' ? 'assistant' : 'user',
-        content: message.content,
-        createdAt: message.createdAt,
-      }))
-    } catch (error) {
-      loadedDetail.delete(id)
-      console.error(error)
-    }
+  (id) => {
+    if (id) loadDetail(id)
   },
   { immediate: true },
 )
@@ -252,7 +266,17 @@ async function confirmDelete() {
       <div class="conv-search">
         <AppSearch v-model="search" :placeholder="t('aiTutor.searchPlaceholder')" />
       </div>
-      <p v-if="filtered.length === 0" class="conv-empty">{{ t('aiTutor.listEmpty') }}</p>
+      <div v-if="listLoading" class="conv-state">
+        <AppSkeleton :lines="6" />
+      </div>
+      <AppEmpty v-else-if="listError" icon="alert-circle" :title="t(listError.messageKey)">
+        <template #action>
+          <AppButton size="sm" variant="soft" @click="reloadConversations">
+            {{ t('common.retry') }}
+          </AppButton>
+        </template>
+      </AppEmpty>
+      <p v-else-if="filtered.length === 0" class="conv-empty">{{ t('aiTutor.listEmpty') }}</p>
       <ul v-else class="conv-list">
         <li v-for="conv in filtered" :key="conv.id">
           <div class="conv-row" :class="{ active: conv.id === activeId }">
@@ -437,6 +461,10 @@ async function confirmDelete() {
 
 .conv-search {
   padding: 0 var(--space-4) var(--space-3);
+}
+
+.conv-state {
+  padding: var(--space-4);
 }
 
 .conv-empty {

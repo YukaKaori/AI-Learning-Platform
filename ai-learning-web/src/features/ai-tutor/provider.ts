@@ -1,5 +1,6 @@
 import { refreshTokenAfterUnauthorized } from '@/api/http'
 import { tokenStorage } from '@/api/token-storage'
+import type { SendMessagePayload } from '@/api/modules/ai'
 import type { ChatMessage } from './types'
 
 /**
@@ -82,7 +83,7 @@ export class ServerSseChatProvider implements ChatProvider {
 
   constructor(
     private readonly conversationId: string,
-    private readonly context: { subjectName?: string; subjectDescription?: string } = {},
+    private readonly context: Omit<SendMessagePayload, 'content'> = {},
   ) {}
 
   cancel() {
@@ -94,11 +95,13 @@ export class ServerSseChatProvider implements ChatProvider {
     if (!lastUserMessage) return
 
     const url = `${import.meta.env.VITE_API_BASE_URL}/v1/ai/conversations/${this.conversationId}/messages`
-    const body = JSON.stringify({
+    const payload: SendMessagePayload = {
       content: lastUserMessage.content,
       subjectName: this.context.subjectName,
       subjectDescription: this.context.subjectDescription,
-    })
+      subjectId: this.context.subjectId,
+    }
+    const body = JSON.stringify(payload)
 
     this.abortController = new AbortController()
     let response = await this.post(url, body)

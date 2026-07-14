@@ -20,6 +20,7 @@ import {
   AppSkeleton,
   AppTag,
   AppTooltip,
+  StatTile,
 } from '@/components'
 import type { ButtonVariant, Tone } from '@/components/types'
 import type { IconName } from '@/components/icons/registry'
@@ -127,6 +128,20 @@ function removeTag(tag: string) {
           <template #header>Glass</template>
           Translucent, blurred backdrop — used for floating surfaces.
         </AppCard>
+      </div>
+    </AppSection>
+
+    <AppSection
+      title="Stat tiles"
+      description="Dashboard KPI tile — optional icon, formatted value, caption. Views format values (durations, units, honest '—' for null metrics)."
+    >
+      <div class="tile-row">
+        <StatTile icon="flame" label="Streak" value="6 days" />
+        <StatTile icon="clock" label="Studied today" value="1h 25m" />
+        <StatTile label="Task completion" value="—" />
+        <StatTile label="Custom content">
+          <span style="color: var(--color-success)">92%</span>
+        </StatTile>
       </div>
     </AppSection>
 
@@ -295,6 +310,12 @@ function removeTag(tag: string) {
 }
 .tone-info {
   background-color: var(--color-info);
+}
+
+.tile-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-4);
 }
 
 .icon-tile {
