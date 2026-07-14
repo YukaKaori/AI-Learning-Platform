@@ -60,6 +60,9 @@ public class PromptBuilder {
             }
             sb.append('\n');
         }
+        if (context.subjectMaterialTitles() != null && !context.subjectMaterialTitles().isEmpty()) {
+            sb.append("- 学科资料：").append(String.join("、", context.subjectMaterialTitles())).append('\n');
+        }
         if (context.totalNotes() > 0) {
             sb.append("- 用户共有 ").append(context.totalNotes()).append(" 篇笔记");
             if (context.recentNoteTitles() != null && !context.recentNoteTitles().isEmpty()) {

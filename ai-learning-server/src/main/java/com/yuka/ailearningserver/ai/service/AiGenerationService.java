@@ -58,33 +58,33 @@ public class AiGenerationService {
 
     public GenerationResponse explain(Long userId, ExplainRequest request) {
         String content = generateRaw(userId, PromptTemplate.EXPLAIN,
-                new ContextHints(request.subjectName(), request.subjectDescription(), null, null, null),
+                new ContextHints(null, request.subjectName(), request.subjectDescription(), null, null, null),
                 request.topic());
         return new GenerationResponse(content);
     }
 
     public GenerationResponse summary(Long userId, SummaryRequest request) {
         String content = generateRaw(userId, PromptTemplate.SUMMARY,
-                new ContextHints(request.subjectName(), request.subjectDescription(), null, "待总结内容", request.text()),
+                new ContextHints(null, request.subjectName(), request.subjectDescription(), null, "待总结内容", request.text()),
                 null);
         return new GenerationResponse(content);
     }
 
     public GenerationResponse suggestions(Long userId, SuggestionsRequest request) {
         String content = generateRaw(userId, PromptTemplate.SUGGESTIONS,
-                new ContextHints(request.subjectName(), request.subjectDescription(), null, null, null), null);
+                new ContextHints(null, request.subjectName(), request.subjectDescription(), null, null, null), null);
         return new GenerationResponse(content);
     }
 
     public GenerationResponse weeklySummary(Long userId, StatsRequest request) {
         String content = generateRaw(userId, PromptTemplate.WEEKLY_SUMMARY,
-                new ContextHints(null, null, request.statsSnapshot(), null, null), null);
+                new ContextHints(null, null, null, request.statsSnapshot(), null, null), null);
         return new GenerationResponse(content);
     }
 
     public GenerationResponse weakPoints(Long userId, StatsRequest request) {
         String content = generateRaw(userId, PromptTemplate.WEAK_POINTS,
-                new ContextHints(null, null, request.statsSnapshot(), null, null), null);
+                new ContextHints(null, null, null, request.statsSnapshot(), null, null), null);
         return new GenerationResponse(content);
     }
 
@@ -99,21 +99,21 @@ public class AiGenerationService {
             case SUMMARIZE -> PromptTemplate.NOTE_SUMMARIZE;
         };
         String content = generateRaw(userId, template,
-                new ContextHints(request.subjectName(), request.subjectDescription(), null, "选中文本", request.text()),
+                new ContextHints(null, request.subjectName(), request.subjectDescription(), null, "选中文本", request.text()),
                 request.text());
         return new GenerationResponse(content);
     }
 
     public QuizResponse quiz(Long userId, QuizRequest request) {
         String raw = generateRaw(userId, PromptTemplate.QUIZ,
-                new ContextHints(request.subjectName(), request.subjectDescription(), null, "参考内容", request.text()),
+                new ContextHints(null, request.subjectName(), request.subjectDescription(), null, "参考内容", request.text()),
                 null);
         return parseJson(raw, QuizResponse.class);
     }
 
     public DeckResponse flashcards(Long userId, FlashcardGenerationRequest request) {
         String raw = generateRaw(userId, PromptTemplate.FLASHCARDS,
-                new ContextHints(request.subjectName(), request.subjectDescription(), null, "参考内容", request.text()),
+                new ContextHints(null, request.subjectName(), request.subjectDescription(), null, "参考内容", request.text()),
                 null);
         FlashcardsWire wire = parseJson(raw, FlashcardsWire.class);
         List<CreateCardRequest> cards = wire.cards().stream()

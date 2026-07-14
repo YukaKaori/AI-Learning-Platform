@@ -23,9 +23,9 @@ ai/
   provider/AiProvider.java         interface: id(), isConfigured(), chat(ChatRequest, ChatStreamListener)
   provider/DeepSeekProvider.java   OpenAI-compatible /chat/completions, SSE parsing, retry + error translation
   provider/dto/*                   DeepSeek wire DTOs (package-private)
-  context/LearningContext.java     record: subject snapshot, note/flashcard counts, stats snapshot, focus content
-  context/ContextHints.java        caller-supplied hints LearningContextService can't derive itself
-  context/LearningContextService.java   builds LearningContext from userId (real note/flashcard data) + hints (client-supplied subject/stats)
+  context/LearningContext.java     record: subject snapshot + material titles, note/flashcard counts, stats snapshot, focus content
+  context/ContextHints.java        caller-supplied hints: a resolved subjectId (Phase 7) plus string fallbacks LearningContextService can't derive itself
+  context/LearningContextService.java   builds LearningContext from userId (real note/flashcard data), resolves subjectId → subject/materials/notes server-side (Phase 7), falls back to string hints
   prompt/PromptTemplate.java       one system prompt per use-case (TUTOR, EXPLAIN, QUIZ, FLASHCARDS, STUDY_PLAN, SUMMARY, SUGGESTIONS, NOTE_*, WEAK_POINTS, WEEKLY_SUMMARY)
   prompt/PromptBuilder.java        renders template + context + history + input into the final message list; enforces maxPromptChars
   stream/SseRelay.java             drives AiProvider.chat on a virtual thread, relays tokens to SseEmitter, handles cancellation
@@ -127,10 +127,12 @@ true` on the message row), so the user never loses a partial answer.
 ## Context pipeline
 
 ```java
-public record ContextHints(String subjectName, String subjectDescription,
-        String statsSnapshot, String focusLabel, String focusContent)
+public record ContextHints(Long subjectId, String subjectName,
+        String subjectDescription, String statsSnapshot,
+        String focusLabel, String focusContent)
 
 public record LearningContext(String subjectName, String subjectDescription,
+        List<String> subjectMaterialTitles,
         int totalNotes, List<String> recentNoteTitles,
         int totalFlashcardDecks, int totalFlashcards, int dueFlashcards,
         String statsSnapshot, String focusLabel, String focusContent)
@@ -141,13 +143,19 @@ from two sources:
 
 - **Real, server-resolved data** — recent note titles and flashcard/deck
   counts, queried from `NoteMapper`/`FlashcardDeckMapper`/`FlashcardMapper`,
-  scoped to `userId`. This is real because Notes and Flashcards got real
-  CRUD this phase.
-- **Caller-supplied hints** — subject name/description, an analytics stats
-  snapshot, and "focus content" (e.g. the note text a rewrite/explain action
-  is operating on). The caller is responsible for having already fetched and
-  ownership-checked whatever it passes as `focusContent`; `LearningContext`
-  never fetches it itself.
+  scoped to `userId`. Since Phase 7, `hints.subjectId()` — a *resolved,
+  ownership-validated* id the caller obtained via
+  `SubjectService.resolveOwnedSubject*()` — additionally pulls the subject's
+  real name/description, its material titles (up to 10, newest first), and
+  scopes the note count/titles to that subject. A stale id (subject deleted
+  since it was persisted on a conversation) degrades gracefully to the string
+  hints instead of failing the chat.
+- **Caller-supplied hints** — subject name/description (fallback when no
+  subject id is present — legacy clients and the generation endpoints), an
+  analytics stats snapshot, and "focus content" (e.g. the note text a
+  rewrite/explain action is operating on). The caller is responsible for
+  having already fetched and ownership-checked whatever it passes as
+  `focusContent`; `LearningContext` never fetches it itself.
 
 `PromptBuilder` renders the non-empty parts of a `LearningContext` into a
 `## 学习背景` block appended to the template's system prompt, then prepends
@@ -155,22 +163,32 @@ conversation history and the current user input — every AI use-case (chat and
 one-shot generation alike) goes through this one method, so no controller or
 service ever concatenates a prompt string itself.
 
-### Known limitation: subjects are still mock-only
+### Phase 6 limitation, closed in Phase 7: server-side subject resolution
 
-`subjects`, `learning_materials` and related tables exist in MySQL but have
-**zero rows** — Subject data still lives only in the frontend's
-`features/subjects/mock.ts`, with string ids (`"sub-ml"`) that aren't valid
-snowflake `BIGINT`s (per `docs/product-domain.md`'s Phase 5 scoping — Phase 6
-did not add Subject/Task CRUD). Consequently the context pipeline **cannot**
-resolve a subject server-side from a `subjectId`. Instead, every Subject-page
-and Analytics AI action sends the subject's `name`/`description` (or the
-Analytics stats snapshot) as **plain client-supplied fields** on the request
-DTO — `ContextHints.subjectName()` / `subjectDescription()` / `statsSnapshot()`
-— rather than a foreign key the server resolves. `ai_conversations.subject_name`
-is a `VARCHAR` snapshot for the same reason, not a logical FK.
+Phase 6 shipped with subjects living only in frontend mocks, so every AI
+action sent the subject's `name`/`description` as plain client-supplied text.
+Phase 7 closed that boundary: Subject CRUD is real, `ai_conversations` gained
+a nullable `subject_id` logical FK (V5), and the chat endpoints accept a
+`subjectId`:
 
-This is a deliberate, documented boundary for a future phase to close (real
-Subject CRUD + a `subjectId`-based context lookup), not an oversight.
+- `POST /ai/conversations` and `POST /ai/conversations/{id}/messages` take an
+  optional `subjectId` (string wire id). It must reference a subject owned by
+  the caller (`SubjectService.resolveOwnedSubject`, same 110000/110001 errors
+  as everywhere else) and is persisted on the conversation, with
+  `subject_name` refreshed as a display snapshot from the real subject.
+  Per the partial-update convention, `null` keeps the current link and
+  `""` clears it; on later sends the conversation's stored link supplies the
+  context without the client resending it.
+- `LearningContextService` resolves the id to the subject's real
+  name/description/material titles and subject-scoped notes (see above).
+- **String hints remain supported**: requests without a `subjectId` behave
+  exactly as in Phase 6 — hint-only chat and all generation endpoints
+  (`statsSnapshot`, Subject-page text context) still work unchanged.
+
+`subject_name` is kept deliberately (not retired) so conversation lists stay
+readable after a subject is renamed or deleted — subject deletion nullifies
+`subject_id` (Phase 7 cascade in `SubjectService.delete`) but leaves the
+snapshot.
 
 ## Prompt system
 
@@ -202,9 +220,11 @@ use-case:
 1. Persist the user's message.
 2. If this is the conversation's first message, derive a title from it (first
    24 chars + `…`).
-3. Build `LearningContext` from the client-supplied `subjectName`/
-   `subjectDescription` on the request (chat has no note/flashcard "focus" —
-   that's the generation endpoints' job) plus real note/flashcard counts.
+3. Resolve the optional `subjectId` (persisting the link and refreshing the
+   `subjectName` snapshot), then build `LearningContext` from the
+   conversation's subject link — or the client-supplied `subjectName`/
+   `subjectDescription` fallback — plus real note/flashcard counts (chat has
+   no note/flashcard "focus"; that's the generation endpoints' job).
 4. `PromptBuilder.build(TUTOR, context, history, null)` — history is the
    full prior message list, mapped to `ChatTurn`s.
 5. Hand the message list to `SseRelay.stream(...)`, whose `RelayCallback`
@@ -346,8 +366,9 @@ environment. A blank key means every AI endpoint returns
 `V3__create_ai_conversation_tables.sql` — same conventions as V1/V2 (snowflake
 ids, audit + logical-delete columns, indexed logical FKs, `utf8mb4_unicode_ci`):
 
-- **`ai_conversations`**: `user_id`, `title`, `subject_name` (nullable
-  snapshot, not a FK — see the scoping note above), `archived`.
+- **`ai_conversations`**: `user_id`, `title`, `subject_id` (nullable logical
+  FK, added by V5 in Phase 7), `subject_name` (nullable display snapshot —
+  see the subject-resolution note above), `archived`.
 - **`ai_messages`**: `conversation_id`, `user_id` (denormalized, so per-user
   queries need no join), `role` (0=user, 1=assistant, 2=system), `content`
   (`MEDIUMTEXT`), `truncated` (set when a reply was cut short by cancellation
@@ -420,11 +441,13 @@ controller, or any frontend file changes — that's the point of the seam.
 
 ## What the next phase finds waiting for it
 
-- Real Subject/Task CRUD (backend `service`/`controller`/`dto`, a frontend
-  `api/modules/subject.ts`) would let `LearningContextService` resolve
-  subjects server-side from a `subjectId` instead of trusting client-supplied
-  name/description text, and would let `ai_conversations.subject_name`
-  become a proper `subject_id` FK.
+- ~~Real Subject/Task CRUD … `subjectId`-based context lookup~~ — **done in
+  Phase 7**: `LearningContextService` resolves subjects server-side and
+  `ai_conversations.subject_id` is a real logical FK (see the
+  subject-resolution section). What remains open on that path is the
+  frontend sending `subjectId` from a real subject picker (Phase 7 frontend
+  steps) and eventually extending `subjectId` to the one-shot generation
+  DTOs, which still use string hints by design.
 - A spaced-repetition review engine (flashcard `due_at`/`interval_days`/`ease`
   columns already exist, reserved since Phase 5) would let Analytics' stats
   snapshot include real review data instead of the mock numbers it composes

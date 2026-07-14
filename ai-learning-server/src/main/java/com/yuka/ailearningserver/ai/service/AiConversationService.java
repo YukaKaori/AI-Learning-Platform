@@ -23,6 +23,8 @@ import com.yuka.ailearningserver.ai.provider.ChatTurn;
 import com.yuka.ailearningserver.ai.stream.RelayCallback;
 import com.yuka.ailearningserver.ai.stream.SseRelay;
 import com.yuka.ailearningserver.common.OwnershipGuard;
+import com.yuka.ailearningserver.subject.SubjectService;
+import com.yuka.ailearningserver.subject.entity.Subject;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -44,15 +46,17 @@ public class AiConversationService {
     private final LearningContextService learningContextService;
     private final PromptBuilder promptBuilder;
     private final SseRelay sseRelay;
+    private final SubjectService subjectService;
 
     public AiConversationService(AiConversationMapper conversationMapper, AiMessageMapper messageMapper,
                                  LearningContextService learningContextService, PromptBuilder promptBuilder,
-                                 SseRelay sseRelay) {
+                                 SseRelay sseRelay, SubjectService subjectService) {
         this.conversationMapper = conversationMapper;
         this.messageMapper = messageMapper;
         this.learningContextService = learningContextService;
         this.promptBuilder = promptBuilder;
         this.sseRelay = sseRelay;
+        this.subjectService = subjectService;
     }
 
     public List<ConversationSummaryResponse> list(Long userId) {
@@ -69,7 +73,13 @@ public class AiConversationService {
         conversation.setUserId(userId);
         conversation.setTitle(request.title() != null && !request.title().isBlank()
                 ? request.title() : DEFAULT_TITLE);
-        conversation.setSubjectName(request.subjectName());
+        Subject subject = subjectService.resolveOwnedSubject(userId, request.subjectId());
+        if (subject != null) {
+            conversation.setSubjectId(subject.getId());
+            conversation.setSubjectName(subject.getName());
+        } else {
+            conversation.setSubjectName(request.subjectName());
+        }
         conversation.setArchived(false);
         conversationMapper.insert(conversation);
         return ConversationDetailResponse.from(conversation, List.of());
@@ -100,6 +110,15 @@ public class AiConversationService {
     public SseEmitter streamReply(Long userId, Long conversationId, SendMessageRequest request) {
         AiConversation conversation = requireOwned(userId, conversationId);
 
+        // Resolve the subject link before persisting anything so a foreign or
+        // malformed id rejects the whole send. null = keep the current link,
+        // "" = unlink (partial-update convention).
+        if (request.subjectId() != null) {
+            Subject subject = subjectService.resolveOwnedSubject(userId, request.subjectId());
+            conversation.setSubjectId(subject != null ? subject.getId() : null);
+            conversation.setSubjectName(subject != null ? subject.getName() : null);
+        }
+
         persistMessage(conversationId, userId, AiMessageRole.USER, request.content(), false);
         List<AiMessage> history = messagesOf(conversationId);
         if (history.size() == 1) {
@@ -107,7 +126,8 @@ public class AiConversationService {
         }
         conversationMapper.updateById(conversation);
 
-        ContextHints hints = new ContextHints(request.subjectName(), request.subjectDescription(), null, null, null);
+        ContextHints hints = new ContextHints(conversation.getSubjectId(), request.subjectName(),
+                request.subjectDescription(), null, null, null);
         LearningContext context = learningContextService.build(userId, hints);
         List<ChatTurn> messages = promptBuilder.build(PromptTemplate.TUTOR, context,
                 history.stream().map(AiConversationService::toChatTurn).toList(), null);

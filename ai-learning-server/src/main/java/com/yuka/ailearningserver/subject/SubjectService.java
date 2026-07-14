@@ -166,6 +166,16 @@ public class SubjectService {
      * subject link (notes, decks, tasks, sessions).
      */
     public Long resolveOwnedSubjectId(Long userId, String subjectId) {
+        Subject subject = resolveOwnedSubject(userId, subjectId);
+        return subject != null ? subject.getId() : null;
+    }
+
+    /**
+     * Same contract as {@link #resolveOwnedSubjectId}, returning the entity —
+     * for callers that also need the subject's fields (e.g. AI conversations
+     * persisting a {@code subjectName} display snapshot).
+     */
+    public Subject resolveOwnedSubject(Long userId, String subjectId) {
         if (subjectId == null || subjectId.isBlank()) {
             return null;
         }
@@ -175,7 +185,7 @@ public class SubjectService {
         } catch (NumberFormatException e) {
             throw new BusinessException(SubjectErrorCode.SUBJECT_NOT_FOUND);
         }
-        return requireOwned(userId, id).getId();
+        return requireOwned(userId, id);
     }
 
     /**
