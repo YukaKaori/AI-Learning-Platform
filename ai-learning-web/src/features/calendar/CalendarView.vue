@@ -1,13 +1,25 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppIcon, AppPageHeader, AppTag } from '@/components'
-import { getSubject } from '@/features/subjects/mock'
-import { accentColor } from '@/features/subjects/types'
-import { mockTasks } from '@/features/tasks/mock'
-import { sessionsOfDay } from './mock'
+import { AppButton, AppDialog, AppEmpty, AppIcon, AppPageHeader, AppSkeleton, AppTag } from '@/components'
+import { deleteStudySession, listStudySessions } from '@/api/modules/calendar'
+import type { StudySessionDto } from '@/api/modules/calendar'
+import { deleteTask as apiDeleteTask, listTasks, updateTask } from '@/api/modules/task'
+import type { TaskDto } from '@/api/modules/task'
+import { useAsync } from '@/composables/useAsync'
+import { useSubjectsStore } from '@/stores/subjects'
+import { accentColor, subjectAccentOf } from '@/features/subjects/types'
+import TaskFormDialog from '@/features/tasks/components/TaskFormDialog.vue'
+import SessionFormDialog from './components/SessionFormDialog.vue'
 
-const { t, d } = useI18n()
+const { t, d, locale } = useI18n()
+const subjectsStore = useSubjectsStore()
+
+onMounted(() => {
+  void subjectsStore.load()
+})
+
+// --- Visible window -----------------------------------------------------------
 
 type ViewMode = 'week' | 'month'
 const mode = ref<ViewMode>('week')
@@ -36,11 +48,16 @@ const monthStart = computed(() => {
   const d = new Date(anchor.value)
   return new Date(d.getFullYear(), d.getMonth(), 1).getTime()
 })
-const monthGrid = computed(() => {
-  const gridStart = startOfWeek(monthStart.value)
-  return Array.from({ length: 42 }, (_, i) => gridStart + i * DAY)
-})
+const gridStart = computed(() => startOfWeek(monthStart.value))
+const monthGrid = computed(() => Array.from({ length: 42 }, (_, i) => gridStart.value + i * DAY))
 const currentMonth = computed(() => new Date(monthStart.value).getMonth())
+
+/** The fetch window is exactly what's on screen (the API requires one). */
+const range = computed(() =>
+  mode.value === 'week'
+    ? { from: weekStart.value, to: weekStart.value + 7 * DAY }
+    : { from: gridStart.value, to: gridStart.value + 42 * DAY },
+)
 
 function shift(delta: number) {
   const d = new Date(anchor.value)
@@ -55,21 +72,150 @@ function goToday() {
   anchor.value = today
 }
 
-function tasksOn(dayStart: number): typeof mockTasks {
+// --- Data (D3 states; navigation refetches the window) -------------------------
+
+const { data, loading, error, reload } = useAsync(async () => {
+  const [sessions, tasks] = await Promise.all([
+    listStudySessions(range.value.from, range.value.to),
+    listTasks(),
+  ])
+  return { sessions, tasks }
+})
+
+watch(range, () => {
+  void reload()
+})
+
+const showSkeleton = computed(() => loading.value && data.value === null)
+
+// Working copies — the view mutates list items (toggle/edit/delete) locally.
+const sessions = ref<StudySessionDto[]>([])
+const tasks = ref<TaskDto[]>([])
+
+watch(data, (value) => {
+  sessions.value = value ? [...value.sessions] : []
+  tasks.value = value ? [...value.tasks] : []
+})
+
+function sessionsOfDay(dayStart: number): StudySessionDto[] {
   const end = dayStart + DAY
-  return mockTasks.filter(
-    (task) => task.dueAt !== undefined && task.dueAt >= dayStart && task.dueAt < end,
-  )
+  return sessions.value
+    .filter((s) => s.startsAt >= dayStart && s.startsAt < end)
+    .sort((a, b) => a.startsAt - b.startsAt)
 }
 
-function subjectAccent(subjectId?: string): string {
-  const subject = subjectId ? getSubject(subjectId) : undefined
-  return subject ? accentColor(subject.accent) : 'var(--color-muted)'
+function tasksOn(dayStart: number): TaskDto[] {
+  const end = dayStart + DAY
+  return tasks.value
+    .filter((task) => task.dueAt !== null && task.dueAt >= dayStart && task.dueAt < end)
+    .sort((a, b) => a.dueAt! - b.dueAt!)
+}
+
+function subjectAccent(subjectId: string | null): string {
+  const subject = subjectsStore.byId(subjectId)
+  return subject ? accentColor(subjectAccentOf(subject.color)) : 'var(--color-muted)'
+}
+
+function sessionLabel(session: StudySessionDto): string {
+  return session.title || subjectsStore.byId(session.subjectId)?.name || t('calendar.session')
 }
 
 const weekdayLabels = computed(() =>
-  weekDays.value.map((day) => new Intl.DateTimeFormat(undefined, { weekday: 'short' }).format(day)),
+  weekDays.value.map((day) =>
+    new Intl.DateTimeFormat(locale.value, { weekday: 'short' }).format(day),
+  ),
 )
+
+// --- Session dialogs ------------------------------------------------------------
+
+const sessionDialogOpen = ref(false)
+const editingSession = ref<StudySessionDto | null>(null)
+const sessionInitialDate = ref<number | null>(null)
+
+function openCreateSession(dayStart?: number) {
+  editingSession.value = null
+  sessionInitialDate.value = dayStart ?? null
+  sessionDialogOpen.value = true
+}
+
+function openEditSession(session: StudySessionDto) {
+  editingSession.value = session
+  sessionDialogOpen.value = true
+}
+
+function onSessionSaved(saved: StudySessionDto) {
+  sessions.value = sessions.value.filter((s) => s.id !== saved.id)
+  // An edit can move the session out of the visible window — only keep it if visible.
+  if (saved.startsAt >= range.value.from && saved.startsAt < range.value.to) {
+    sessions.value.push(saved)
+  }
+}
+
+const sessionDeleteTarget = ref<StudySessionDto | null>(null)
+
+async function confirmDeleteSession() {
+  const session = sessionDeleteTarget.value
+  if (!session) return
+  try {
+    await deleteStudySession(session.id)
+    sessions.value = sessions.value.filter((s) => s.id !== session.id)
+  } catch (caught) {
+    console.error(caught)
+  } finally {
+    sessionDeleteTarget.value = null
+  }
+}
+
+// --- Task dialogs + status toggle -----------------------------------------------
+
+const taskDialogOpen = ref(false)
+const editingTask = ref<TaskDto | null>(null)
+
+function openCreateTask() {
+  editingTask.value = null
+  taskDialogOpen.value = true
+}
+
+function openEditTask(task: TaskDto) {
+  editingTask.value = task
+  taskDialogOpen.value = true
+}
+
+function onTaskSaved(saved: TaskDto) {
+  const index = tasks.value.findIndex((task) => task.id === saved.id)
+  if (index >= 0) {
+    tasks.value[index] = saved
+  } else {
+    tasks.value.push(saved)
+  }
+}
+
+async function toggleTask(task: TaskDto) {
+  const previous = task.status
+  const next = task.status === 'done' ? 'todo' : 'done'
+  task.status = next // optimistic; the response carries completedAt
+  try {
+    onTaskSaved(await updateTask(task.id, { status: next }))
+  } catch (caught) {
+    task.status = previous
+    console.error(caught)
+  }
+}
+
+const taskDeleteTarget = ref<TaskDto | null>(null)
+
+async function confirmDeleteTask() {
+  const task = taskDeleteTarget.value
+  if (!task) return
+  try {
+    await apiDeleteTask(task.id)
+    tasks.value = tasks.value.filter((item) => item.id !== task.id)
+  } catch (caught) {
+    console.error(caught)
+  } finally {
+    taskDeleteTarget.value = null
+  }
+}
 </script>
 
 <template>
@@ -77,6 +223,7 @@ const weekdayLabels = computed(() =>
     <AppPageHeader :title="t('calendar.title')">
       <template #actions>
         <div class="toolbar">
+          <span class="period">{{ d(anchor, 'monthYear') }}</span>
           <div class="mode-switch">
             <button
               type="button"
@@ -112,34 +259,77 @@ const weekdayLabels = computed(() =>
             :aria-label="t('calendar.next')"
             @click="shift(1)"
           />
+          <AppButton variant="soft" size="sm" icon-left="list-todo" @click="openCreateTask">
+            {{ t('tasks.newTask') }}
+          </AppButton>
+          <AppButton size="sm" icon-left="plus" @click="openCreateSession()">
+            {{ t('calendar.newSession') }}
+          </AppButton>
         </div>
       </template>
     </AppPageHeader>
 
+    <!-- Loading -->
+    <div v-if="showSkeleton" :class="mode === 'week' ? 'week-grid' : undefined" aria-hidden="true">
+      <template v-if="mode === 'week'">
+        <AppSkeleton v-for="n in 7" :key="n" variant="block" height="320px" />
+      </template>
+      <AppSkeleton v-else variant="block" height="540px" />
+    </div>
+
+    <!-- Error -->
+    <AppEmpty v-else-if="error" icon="alert-circle" :title="t(error.messageKey)">
+      <template #action>
+        <AppButton size="sm" variant="soft" @click="reload">{{ t('common.retry') }}</AppButton>
+      </template>
+    </AppEmpty>
+
     <!-- Week view -->
-    <div v-if="mode === 'week'" class="week-grid">
+    <div v-else-if="mode === 'week'" class="week-grid">
       <div v-for="dayStart in weekDays" :key="dayStart" class="day-column" :class="{ today: dayStart === today }">
         <div class="day-head">
           <span class="day-weekday">{{ weekdayLabels[weekDays.indexOf(dayStart)] }}</span>
           <span class="day-number">{{ d(dayStart, 'short') }}</span>
+          <button
+            type="button"
+            class="day-add"
+            :aria-label="t('calendar.newSession')"
+            @click="openCreateSession(dayStart)"
+          >
+            <AppIcon name="plus" size="sm" />
+          </button>
         </div>
 
         <div class="day-body">
-          <div
+          <button
             v-for="session in sessionsOfDay(dayStart)"
             :key="session.id"
+            type="button"
             class="session-block"
             :style="{ borderColor: subjectAccent(session.subjectId) }"
+            @click="openEditSession(session)"
           >
             <span class="session-time">{{ d(session.startsAt, 'time') }}</span>
-            <span class="session-title">
-              {{ session.title || getSubject(session.subjectId || '')?.name }}
-            </span>
-          </div>
+            <span class="session-title">{{ sessionLabel(session) }}</span>
+          </button>
 
-          <div v-for="task in tasksOn(dayStart)" :key="task.id" class="task-chip">
-            <AppIcon name="list-todo" size="sm" />
-            <span>{{ task.title }}</span>
+          <div
+            v-for="task in tasksOn(dayStart)"
+            :key="task.id"
+            class="task-chip"
+            :class="{ done: task.status === 'done' }"
+          >
+            <button
+              type="button"
+              class="task-toggle"
+              :aria-label="task.status === 'done' ? t('tasks.markTodo') : t('tasks.markDone')"
+              @click="toggleTask(task)"
+            >
+              <AppIcon :name="task.status === 'done' ? 'check-circle' : 'circle'" size="sm" />
+            </button>
+            <button type="button" class="task-label" @click="openEditTask(task)">
+              {{ task.title }}
+            </button>
           </div>
 
           <p
@@ -178,6 +368,51 @@ const weekdayLabels = computed(() =>
         </div>
       </div>
     </div>
+
+    <SessionFormDialog
+      v-model="sessionDialogOpen"
+      :session="editingSession"
+      :initial-date="sessionInitialDate"
+      @saved="onSessionSaved"
+      @delete="(session) => (sessionDeleteTarget = session)"
+    />
+
+    <TaskFormDialog
+      v-model="taskDialogOpen"
+      :task="editingTask"
+      @saved="onTaskSaved"
+      @delete="(task) => (taskDeleteTarget = task)"
+    />
+
+    <AppDialog
+      :model-value="sessionDeleteTarget !== null"
+      :title="t('calendar.sessionDeleteConfirm.title')"
+      width="420px"
+      @update:model-value="(open) => { if (!open) sessionDeleteTarget = null }"
+    >
+      <p>{{ t('calendar.sessionDeleteConfirm.body') }}</p>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="sessionDeleteTarget = null">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton tone="danger" @click="confirmDeleteSession">{{ t('common.delete') }}</AppButton>
+      </template>
+    </AppDialog>
+
+    <AppDialog
+      :model-value="taskDeleteTarget !== null"
+      :title="t('tasks.deleteConfirm.title')"
+      width="420px"
+      @update:model-value="(open) => { if (!open) taskDeleteTarget = null }"
+    >
+      <p>{{ t('tasks.deleteConfirm.body', { title: taskDeleteTarget?.title ?? '' }) }}</p>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="taskDeleteTarget = null">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton tone="danger" @click="confirmDeleteTask">{{ t('common.delete') }}</AppButton>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -190,8 +425,17 @@ const weekdayLabels = computed(() =>
 
 .toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
+}
+
+.period {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  margin-right: var(--space-2);
 }
 
 .mode-switch {
@@ -243,12 +487,44 @@ const weekdayLabels = computed(() =>
 }
 
 .day-head {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
   padding: var(--space-3) 0;
   border-bottom: var(--border-width-sm) solid var(--color-border);
+}
+
+.day-add {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.day-column:hover .day-add,
+.day-add:focus-visible {
+  opacity: 1;
+}
+
+.day-add:hover {
+  background-color: var(--color-surface-hover);
+  color: var(--color-primary);
 }
 
 .day-weekday {
@@ -276,11 +552,21 @@ const weekdayLabels = computed(() =>
 .session-block {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 2px;
   padding: var(--space-2);
+  border: none;
   border-left: 3px solid;
   border-radius: var(--radius-sm);
   background-color: var(--color-surface-hover);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.session-block:hover {
+  box-shadow: var(--shadow-sm);
 }
 
 .session-time {
@@ -309,10 +595,39 @@ const weekdayLabels = computed(() =>
   font-size: var(--text-xs);
 }
 
-.task-chip span {
+.task-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.task-label {
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.task-chip.done {
+  color: var(--color-text-tertiary);
+  background-color: var(--color-surface-hover);
+}
+
+.task-chip.done .task-label {
+  text-decoration: line-through;
 }
 
 .day-empty {
