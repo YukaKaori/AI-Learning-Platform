@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import * as authApi from '@/api/modules/auth'
 import type { AuthUser, LoginPayload, UpdateProfilePayload } from '@/api/modules/auth'
 import { tokenStorage } from '@/api/token-storage'
+import { useAppStore } from '@/stores/app'
 
 /**
  * Authentication state. Tokens live in tokenStorage (the http layer reads them
@@ -26,6 +27,7 @@ export const useAuthStore = defineStore('auth', {
       tokenStorage.set(result)
       this.user = result.user
       this.initialized = true
+      await useAppStore().reconcileFromServer()
     },
 
     /**
@@ -64,6 +66,7 @@ export const useAuthStore = defineStore('auth', {
       if (tokenStorage.hasSession()) {
         try {
           this.user = await authApi.getCurrentUser()
+          await useAppStore().reconcileFromServer()
         } catch {
           tokenStorage.clear()
         }

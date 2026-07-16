@@ -500,6 +500,12 @@ export default {
       title: '语言',
       desc: '界面语言即时切换。',
     },
+    dailyGoal: {
+      title: '每日学习目标',
+      desc: '工作台的学习进度环以此为目标。',
+      unit: '分钟',
+      invalid: '请输入 1 到 1440 之间的分钟数。',
+    },
     system: {
       title: '服务状态',
       connected: '后端服务已连接',

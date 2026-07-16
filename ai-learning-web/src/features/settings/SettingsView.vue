@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppCard, AppPageHeader } from '@/components'
+import { AppButton, AppCard, AppInput, AppPageHeader } from '@/components'
 import { useAppStore, type ThemeMode } from '@/stores/app'
 import { SUPPORTED_LOCALES, type AppLocale } from '@/locales'
 import { getSystemInfo, type SystemInfo } from '@/api/modules/system'
-import { ApiError } from '@/api/types'
+import { ApiError, toApiError } from '@/api/types'
 
 const { t, d } = useI18n()
 const appStore = useAppStore()
@@ -34,6 +34,65 @@ async function loadSystemInfo() {
 }
 
 onMounted(loadSystemInfo)
+
+// --- Appearance / language — instant local apply, persisted in the background ---
+
+const preferenceErrorKey = ref<string | null>(null)
+
+async function selectThemeMode(mode: ThemeMode) {
+  preferenceErrorKey.value = null
+  try {
+    await appStore.updatePreferences({ theme: mode })
+  } catch (caught) {
+    preferenceErrorKey.value = toApiError(caught).messageKey
+  }
+}
+
+async function selectLocale(locale: AppLocale) {
+  preferenceErrorKey.value = null
+  try {
+    await appStore.updatePreferences({ locale })
+  } catch (caught) {
+    preferenceErrorKey.value = toApiError(caught).messageKey
+  }
+}
+
+// --- Daily study goal --------------------------------------------------------
+
+const MIN_GOAL_MINUTES = 1
+const MAX_GOAL_MINUTES = 1440
+
+const goalDraft = ref(String(appStore.dailyGoalMinutes))
+const savingGoal = ref(false)
+const goalErrorKey = ref<string | null>(null)
+
+watch(
+  () => appStore.dailyGoalMinutes,
+  (minutes) => {
+    goalDraft.value = String(minutes)
+  },
+)
+
+async function saveGoal() {
+  const parsed = Number(goalDraft.value)
+  if (!Number.isInteger(parsed) || parsed < MIN_GOAL_MINUTES || parsed > MAX_GOAL_MINUTES) {
+    goalErrorKey.value = 'settings.dailyGoal.invalid'
+    return
+  }
+  goalErrorKey.value = null
+  if (parsed === appStore.dailyGoalMinutes) {
+    return
+  }
+  savingGoal.value = true
+  try {
+    await appStore.updatePreferences({ dailyGoalMinutes: parsed })
+  } catch (caught) {
+    goalErrorKey.value = toApiError(caught).messageKey
+    goalDraft.value = String(appStore.dailyGoalMinutes)
+  } finally {
+    savingGoal.value = false
+  }
+}
 </script>
 
 <template>
@@ -51,7 +110,7 @@ onMounted(loadSystemInfo)
             type="button"
             class="chip"
             :class="{ active: appStore.themeMode === mode }"
-            @click="appStore.setThemeMode(mode)"
+            @click="selectThemeMode(mode)"
           >
             {{ t(`common.theme.${mode}`) }}
           </button>
@@ -70,12 +129,31 @@ onMounted(loadSystemInfo)
             type="button"
             class="chip"
             :class="{ active: appStore.locale === loc }"
-            @click="appStore.setLocale(loc)"
+            @click="selectLocale(loc)"
           >
             {{ localeLabels[loc] }}
           </button>
         </div>
       </AppCard>
+    </section>
+
+    <p v-if="preferenceErrorKey" class="preference-error" role="alert">
+      {{ t(preferenceErrorKey) }}
+    </p>
+
+    <section class="section">
+      <h2 class="section-title">{{ t('settings.dailyGoal.title') }}</h2>
+      <AppCard variant="flat" class="control-card">
+        <p class="control-desc">{{ t('settings.dailyGoal.desc') }}</p>
+        <form class="goal-form" @submit.prevent="saveGoal">
+          <AppInput v-model="goalDraft" type="number" size="sm" class="goal-input" />
+          <span class="goal-unit">{{ t('settings.dailyGoal.unit') }}</span>
+          <AppButton type="submit" size="sm" variant="soft" :loading="savingGoal">
+            {{ t('common.save') }}
+          </AppButton>
+        </form>
+      </AppCard>
+      <p v-if="goalErrorKey" class="preference-error" role="alert">{{ t(goalErrorKey) }}</p>
     </section>
 
     <section class="section">
@@ -187,6 +265,32 @@ onMounted(loadSystemInfo)
   background-color: var(--color-surface);
   color: var(--color-text);
   box-shadow: var(--shadow-sm);
+}
+
+.preference-error {
+  margin: calc(-1 * var(--space-3)) 0 var(--space-6);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.goal-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.goal-input {
+  width: 80px;
+}
+
+.goal-input :deep(input) {
+  text-align: right;
+}
+
+.goal-unit {
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
 }
 
 .status {

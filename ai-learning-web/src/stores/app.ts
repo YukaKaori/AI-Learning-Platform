@@ -1,11 +1,18 @@
 import { defineStore } from 'pinia'
 import { i18n, DEFAULT_LOCALE, isSupportedLocale, type AppLocale } from '@/locales'
+import {
+  getPreferences,
+  updatePreferences as updatePreferencesApi,
+  type PreferencesDto,
+  type UpdatePreferencesPayload,
+} from '@/api/modules/preferences'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
 const THEME_STORAGE_KEY = 'alp.theme'
 const LOCALE_STORAGE_KEY = 'alp.locale'
 const SIDEBAR_STORAGE_KEY = 'alp.sidebar-collapsed'
+const DEFAULT_DAILY_GOAL_MINUTES = 60
 
 const darkQuery = window.matchMedia('(prefers-color-scheme: dark)')
 
@@ -14,13 +21,18 @@ function isThemeMode(value: string | null): value is ThemeMode {
 }
 
 /**
- * Global UI state: theme and locale. Both persist across sessions.
- * Call `init()` once in main.ts before mounting.
+ * Global UI state: theme, locale, and daily study goal. Theme/locale persist
+ * to localStorage immediately (FOUC-safe boot path, works signed out too);
+ * `reconcileFromServer()` (called after login/session-restore) then fetches
+ * the account's saved preferences and they win, per D4 — the database is the
+ * cross-device source of truth once authenticated. Call `init()` once in
+ * main.ts before mounting.
  */
 export const useAppStore = defineStore('app', {
   state: () => ({
     themeMode: 'system' as ThemeMode,
     locale: DEFAULT_LOCALE as AppLocale,
+    dailyGoalMinutes: DEFAULT_DAILY_GOAL_MINUTES,
     /** Desktop sidebar collapsed to an icon rail. Persisted; irrelevant on mobile (drawer). */
     sidebarCollapsed: false,
   }),
@@ -72,6 +84,39 @@ export const useAppStore = defineStore('app', {
 
     applyTheme() {
       document.documentElement.classList.toggle('dark', this.isDark)
+    },
+
+    /** Adopts a preferences snapshot (server response) as current state. */
+    applyServerPreferences(prefs: PreferencesDto) {
+      this.setThemeMode(prefs.theme)
+      this.setLocale(prefs.locale)
+      this.dailyGoalMinutes = prefs.dailyGoalMinutes
+    },
+
+    /**
+     * Fetches the account's saved preferences after login/session-restore and
+     * applies them (server wins over whatever localStorage/system had).
+     * Failures are non-fatal — the FOUC-safe local values stand until the
+     * next successful sync.
+     */
+    async reconcileFromServer() {
+      try {
+        this.applyServerPreferences(await getPreferences())
+      } catch {
+        // Offline or transient error — keep the local values.
+      }
+    },
+
+    /**
+     * Persists a partial preferences change. Applies the change locally first
+     * for instant feedback, then adopts the server echo once it lands; throws
+     * on failure so the caller can surface an inline error.
+     */
+    async updatePreferences(payload: UpdatePreferencesPayload) {
+      if (payload.theme) this.setThemeMode(payload.theme)
+      if (payload.locale) this.setLocale(payload.locale)
+      if (payload.dailyGoalMinutes !== undefined) this.dailyGoalMinutes = payload.dailyGoalMinutes
+      this.applyServerPreferences(await updatePreferencesApi(payload))
     },
   },
 })

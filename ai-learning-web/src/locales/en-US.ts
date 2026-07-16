@@ -503,6 +503,12 @@ const enUS: typeof zhCN = {
       title: 'Language',
       desc: 'Interface language switches instantly.',
     },
+    dailyGoal: {
+      title: 'Daily study goal',
+      desc: "Sets the target for the Workspace's progress ring.",
+      unit: 'minutes',
+      invalid: 'Enter a number of minutes between 1 and 1440.',
+    },
     system: {
       title: 'Service status',
       connected: 'Backend connected',
