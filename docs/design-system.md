@@ -1,7 +1,10 @@
 # Design System
 
-Phase 3 deliverable. Full component/token reference for `ai-learning-web`. Binding
-conventions live in `docs/architecture.md` — this document explains them.
+Originally a Phase 3 deliverable; **§ Phase 7 additions** at the end of this
+document records the dark-theme re-skin, `StatTile`, and the view-state
+pattern added since. Full component/token reference for `ai-learning-web`.
+Binding conventions live in `docs/architecture.md` — this document explains
+them.
 
 ## Philosophy
 
@@ -71,11 +74,30 @@ surface's roundedness.
 a distinct dark-mode value — dark shadows use higher opacity black, not the same
 rgba as light mode.
 
-### Glass tokens (Phase 4+ prep)
+**`--shadow-glow-primary`** (Phase 7): a very-low-alpha purple halo applied to
+exactly three interactive-emphasis surfaces — `AppButton`'s solid-primary
+variant at rest, `AppSidebar`'s active nav item at rest, `AppCard`'s
+interactive variant on hover/focus. Never ambient. Light mode's value is a
+**zero-alpha shadow, not the `none` keyword**
+(`0 0 0 0 rgba(94, 106, 210, 0)`) — `box-shadow` cannot mix the `none`
+keyword into a comma-separated value list alongside a real shadow, so any
+future theme-conditional shadow token that needs to be "real in one theme,
+invisible in the other" should reuse this zero-alpha-shadow trick rather than
+branching the component's CSS per theme.
 
-`--glass-bg`, `--glass-border`, `--glass-blur` back the glass `AppCard` variant and
-the `.el-dialog`/`.el-drawer` surfaces today. They are **not** a full theme yet — see
-[Theme engine](#theme-engine).
+### Glass tokens
+
+`--glass-bg`, `--glass-border`, `--glass-blur`, `--glass-highlight` back the
+glass `AppCard` variant and the `.el-dialog`/`.el-drawer` surfaces. **Since
+Phase 7**, dark mode's glass is more translucent and more blurred than light
+(`--glass-blur` 28px vs 20px, `--glass-bg` alpha 0.64 vs 0.72) with a
+violet-tinted `--glass-border`/`--glass-highlight` instead of plain white —
+every glass surface (`AppCard`'s `.variant-glass`, the EP dialog/drawer
+bridge) applies `inset 0 1px 0 var(--glass-highlight)` for a consistent
+"physical top edge," a treatment `GlassScene`'s login/welcome experience used
+first and this phase made universal. The independent `--scene-*` token set
+(the login/welcome flower experience) is intentionally untouched by this —
+it shares only `--glass-highlight` with the rest of the app, nothing else.
 
 ### Motion
 
@@ -99,7 +121,8 @@ from `src/components/index.ts`. No auto-import: this mirrors `vite.config.ts`'s
 ### Custom, token-built (signature surfaces)
 
 `AppButton`, `AppInput`, `AppCard`, `AppAvatar`, `AppTag`, `AppBadge`, `AppEmpty`,
-`AppLoading`, `AppSkeleton`, `AppSection`, `AppPageHeader`, `AppSearch`.
+`AppLoading`, `AppSkeleton`, `AppSection`, `AppPageHeader`, `AppSearch`,
+`StatTile` (Phase 7 — see § Phase 7 additions).
 
 These own their full visual implementation — no Element Plus underneath — because
 they're either simple enough to hand-roll (avatar, tag, badge) or are the product's
@@ -190,6 +213,73 @@ means extending the `ThemeMode` union and adding a second class toggle
 linked from nav) renders every component in its variants — use it to eyeball tokens
 and components together, in both themes and both locales, rather than trusting this
 document alone.
+
+## Phase 7 additions
+
+### Dark theme: black+purple luxury identity
+
+`html.dark`'s neutral ramp in `tokens.css` carries a low-saturation ~248°
+indigo-violet hue through every step instead of a flat gray-black ramp:
+`--color-bg` `#0a0910` → `--color-surface` `#12101a` →
+`--color-surface-hover` `#191823` → `--color-border` `#262433` →
+`--color-border-strong` `#343243` → `--color-muted`/`--color-text-tertiary`
+`#6e6b80`. Chosen and validated with a WCAG relative-luminance contrast check
+against the previous shipped ramp (every ratio meets or beats the prior
+baseline — see `docs/phase7-final-report.md` § Verification for the exact
+numbers) rather than by eye. `--color-primary` and its interactive steps were
+left unchanged — already validated in an earlier phase. Light mode received
+only the pre-existing micro-polish; this re-skin is dark-mode-only by design.
+The categorical accent palette (subject identity, chart series) needed no hex
+changes — re-validated against the new dark surface with the dataviz skill's
+`scripts/validate_palette.js`, still all-checks-pass. **Any future change to
+`--color-surface` in either mode must re-run that validation** — it is
+surface-color-dependent, not a one-time check.
+
+The Element Plus CSS-variable bridge (`element-theme.css`) needed **zero**
+component-specific overrides for dark mode — confirmed by driving the
+Calendar date/time picker and an AI-Tutor `el-select` in dark mode; the
+existing generic variable mapping renders both correctly.
+
+### View-state pattern
+
+Every view that loads async data follows one sequence, driven by the
+`useAsync<T>` composable (`data`/`loading`/`error`/`reload`):
+**Skeleton → content | `AppEmpty` | error-with-retry**. Skeleton shapes match
+their view's final layout (block counts and heights line up with the real
+stat-tile rows / chart panels they stand in for) rather than a generic
+shimmer rectangle. Error state renders `t(error.messageKey)` plus a
+`common.retry` action wired to `reload()`. Views that let the user mutate a
+list item keep a local working copy synced from `data` via a `watch`, so an
+optimistic edit doesn't get clobbered by the next background reload.
+
+### `StatTile`
+
+A single token-built component (`src/components/StatTile.vue`) rendering a
+labeled metric with an optional trend indicator, used by Workspace (streak,
+study-progress ring, due cards, active subjects) and Profile (learning-overview
+stats) — the two views that previously hand-rolled nearly identical tile
+markup. Introduced once a second real consumer existed, per the constitution's
+"new shared code needs ≥2 real consumers" rule. Nullable trend values
+(`weekDeltaPercent`-style metrics with no prior-period baseline) render `—`,
+never a fabricated `0%`. Shown in its own section of `/design-system`.
+
+### UX unification pass
+
+Consistent spacing/typography/dialog/hover/focus-visible/transition tokens
+across every dialog and interactive surface added since Phase 5; skeleton
+shapes audited against final layouts (see above); keyboard reachability
+confirmed for every dialog (`AppDialog` inherits `el-dialog`'s native
+focus-trap/Esc handling — nothing reimplemented); `prefers-reduced-motion`
+confirmed still disables the pointer-driven glass spotlight effect
+(`useSpotlight`) as well as all keyframe motion. A dedicated toast/message
+primitive was considered and **deliberately not built** — audited need was
+exactly two background-persist error surfaces app-wide (Settings' preference
+controls, and `AppSidebar`'s quick theme/locale chips, which intentionally
+swallow their own errors since the collapsed rail has no room for an inline
+line), both already served by the existing inline-error-line pattern. Building
+a shared component for two call sites would be a premature abstraction; the
+trigger to reconsider is a third distinct background-persist-error surface
+appearing, not a fixed phase or step number.
 
 ## Explicitly out of scope (Phase 3)
 

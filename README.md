@@ -1,6 +1,28 @@
 # AI Learning Platform
 
-A modern, AI-native learning workspace — built as a commercial-quality SaaS application.
+A modern, AI-native learning workspace — built as a commercial-quality SaaS
+application, not a course project. Every account is fully isolated (own
+subjects, materials, notes, flashcards, tasks, sessions, AI conversations,
+and preferences) and every product surface is backed by real per-user data —
+there is no shared seed content and no mock/fixture data anywhere in the
+running app.
+
+## Product surface
+
+| Module | What it does |
+| --- | --- |
+| **Workspace** | The daily landing dashboard — streak, study-progress ring vs. your real daily goal, due flashcards, continue-learning rail, upcoming tasks, today's sessions, recent notes/AI chats. |
+| **Subjects** | The organizing anchor for everything you study — materials (links today, file upload reserved), progress, and every note/task/session that references it. |
+| **Notes** | Markdown notes, optionally linked to a subject, with an AI toolbar (explain/rewrite/continue/simplify/expand/translate/summarize/generate-flashcards). |
+| **Flashcards** | Decks and cards, including AI-generated decks from a note, subject, or chat. |
+| **AI Tutor** | Streaming chat (DeepSeek) with real conversation history and optional subject context, so the tutor answers using your actual materials/notes. |
+| **Tasks & Calendar** | Study sessions and due-dated tasks in one week/month view; tasks are also quick-addable from Workspace. |
+| **Analytics** | Real weekly activity, subject time distribution, and a study heatmap — server-aggregated from your own data, never fabricated numbers. |
+| **Profile & Settings** | Real account stats and member-since date; theme (light/dark/system)/locale/daily-goal preferences persist server-side and sync across devices. |
+
+Full domain model and module responsibilities: `docs/product-domain.md`.
+Engineering constitution: `docs/architecture.md`. AI implementation detail:
+`docs/ai-engine.md`.
 
 ## Repository layout
 
@@ -10,7 +32,7 @@ ai-learning-platform/
 ├── ai-learning-server/    # Backend  · Spring Boot 4 + MyBatis-Plus + MySQL + Flyway
 ├── docs/                  # Architecture decisions and design documents
 ├── database/              # Schema design docs (migrations live in the server module)
-├── docker/                # Containerization (Phase 5)
+├── docker/                # Containerization (not yet built — see docker/README.md)
 └── README.md
 ```
 

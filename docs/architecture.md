@@ -35,8 +35,9 @@ code lives in `common/`; framework wiring in `config/`.
   40000–49999 common client, 50000–59999 common server, then 10000 per feature
   module starting at 100000 — auth 100000, subject 110000, material 120000,
   note 130000, flashcard 140000, task 150000, calendar 160000,
-  workspace 170000 (reserved), analytics 180000 (reserved), ai 190000,
-  preferences 200000.
+  workspace 170000 (reserved — pure façade, composes other modules' errors,
+  owns no codes of its own), analytics 180000, ai 190000, preferences 200000.
+  See § Phase 7 for the full per-module code list.
 - **Entities** extend `BaseEntity` (snowflake id, `created_at`, `updated_at`,
   `deleted`); audit fields are filled automatically. Entities never cross the API
   boundary — map to DTOs.
@@ -248,8 +249,138 @@ OAuth2/third-party login and MFA (additional issuance paths behind
    for Notes and Flashcards, and AI actions surfaced across AI Tutor, Notes, Flashcards,
    Subjects and Analytics. Subjects/Tasks stay mock-data-only this phase — AI context
    for them is client-supplied, not resolved server-side. See `docs/ai-engine.md`.
-7. **Phase 7 — Production** (not started): Docker, CI/CD, observability, security
-   hardening, OSS storage, real Subject/Task CRUD, spaced-repetition review engine.
+7. **Phase 7 — Commercial Product Foundation** ✅: real per-user Subject/Material/
+   Task/Calendar/Preferences CRUD (V4/V5 migrations), the `subject` domain wired
+   through Notes/Flashcards/AI Tutor, real Workspace/Analytics read models
+   replacing every mock, the dark theme's black+purple luxury re-skin, and a
+   UX unification pass. All 8 `features/*/mock.ts` files deleted. See
+   § Phase 7 below and `docs/product-domain.md`, `docs/mock-migration.md`,
+   `docs/phase7-delivery-report.md`.
+8. **Phase 8** (not yet scoped): candidate areas noted in
+   `docs/phase7-final-report.md`'s "Recommended Phase 8 scope" — registration/
+   email/password-reset, OSS file upload, spaced-repetition review engine,
+   production ops (Docker/CI/CD/observability). Not decided; a dedicated
+   planning session picks the actual scope.
+
+## Phase 7 — Commercial Product Foundation
+
+Turned the Phase 5 mock-data shell into a real, per-user-isolated SaaS product.
+Full design rationale (D1–D10) lives in the phase plan; this section records
+what's binding going forward. Detailed module docs: `docs/product-domain.md`
+(domain model, module responsibilities), `docs/mock-migration.md` (what
+replaced each deleted mock), `docs/ai-engine.md` § subject-resolution (AI
+`subjectId` flow), `docs/design-system.md` (dark theme identity, view-state
+pattern, `StatTile`).
+
+### New/changed modules and error-code ranges
+
+| Range | Module | Notes |
+| --- | --- | --- |
+| 110000–119999 | `subject` | `SUBJECT_NOT_FOUND`, `SUBJECT_ACCESS_DENIED`, `SUBJECT_STATUS_INVALID` |
+| 120000–129999 | `material` | `MATERIAL_NOT_FOUND`, `MATERIAL_ACCESS_DENIED`, `MATERIAL_TYPE_INVALID` |
+| 150000–159999 | `task` | `TASK_NOT_FOUND`, `TASK_ACCESS_DENIED`, `TASK_STATUS_INVALID`, `TASK_PRIORITY_INVALID` |
+| 160000–169999 | `calendar` | `SESSION_NOT_FOUND`, `SESSION_ACCESS_DENIED`, `SESSION_TIME_INVALID`, `SESSION_WINDOW_INVALID` |
+| 170000–179999 | `workspace` | reserved, unused — `GET /v1/workspace/summary` is a pure façade over subject/task/calendar/analytics services and surfaces *their* error codes, never its own |
+| 180000–189999 | `analytics` | `ANALYTICS_RANGE_INVALID` (the only validation surface — window must be 1–90 days) |
+| 200000–209999 | `preferences` | `PREFERENCE_THEME_INVALID`, `PREFERENCE_LOCALE_INVALID` |
+
+`ai` (190000–199999) gained no new codes this phase; see `docs/ai-engine.md`
+for its full table (unchanged since Phase 6, `subject_id` resolution reuses
+`subject`'s own codes, not new ones).
+
+### D1 — `OwnershipGuard`
+
+`common/OwnershipGuard.require(entity, ownerFn, userId, notFoundCode,
+deniedCode)` is the single ownership check every user-scoped module calls
+after a primary-key load: `null` → `notFoundCode`, owner mismatch →
+`deniedCode`, otherwise the entity is returned non-null and confirmed owned.
+Introduced this phase to replace eight copies of the same branch across
+`note`/`flashcard`/`ai` (retrofitted, behavior-neutral) and every new Phase 7
+service (`subject`, `material`, `task`, `calendar`). New user-scoped modules
+call this instead of writing the check inline.
+
+### D2 — Subject delete cascade
+
+`SubjectService.delete` is `@Transactional` and, in order: **soft-deletes**
+the subject's materials (`MaterialMapper.delete(...)` — `LearningMaterial`
+extends `BaseEntity`, whose `deleted` column is `@TableLogic`, so MyBatis-Plus
+turns this into an `UPDATE ... SET deleted = 1`, not a physical `DELETE`),
+then **nullifies** `subject_id` on every note/deck/task/session/conversation
+that referenced it, then hard-deletes the subject row itself. Rationale:
+materials have no existence independent of their subject (existentially
+owned — soft-delete matches every other module's logical-delete convention);
+notes/decks/tasks/sessions/conversations are user-authored content that
+exists independently of any subject link (nullable by design since Phase 5) —
+deleting a subject must never destroy them. The delete confirmation dialog
+states this distinction explicitly rather than leaving it implicit.
+
+### Read-model contracts (Workspace, Analytics)
+
+Both packages own **zero tables** — `GET /v1/workspace/summary` and the three
+`GET /v1/analytics/*` endpoints aggregate existing tables
+(`subjects`/`learning_materials`/`learning_tasks`/`study_sessions`/`notes`/
+`flashcard_decks`/`flashcards`/`ai_conversations`) with column-projected SQL,
+scoped to the authenticated user, computed on every request — no
+materialization, no cache. `weekDeltaPercent` and similar week-over-week
+metrics are **nullable**, rendered as `—` rather than `0`, when the prior
+week has no baseline to compare against (an empty or first-week account must
+never show a fabricated percentage). If aggregation ever becomes measurably
+slow at scale, the fix is a materialized summary table added *inside* the
+owning package by a new migration — never by widening a source domain
+(`subjects`, `study_sessions`, …) to carry derived data it doesn't own.
+
+### Preferences reconciliation contract
+
+`user_preferences` (V4: `user_id` unique, `theme`/`locale`/`daily_goal_minutes`
+with defaults, audit columns) is the server source of truth for theme, locale
+and daily study goal. `GET /v1/preferences` returns the defaults
+(`system`/`zh-CN`/`60`) when no row exists yet — no 404, so a brand-new
+account gets a valid response — and `PUT` upserts. The frontend contract:
+
+1. **Boot (before auth resolves)**: `stores/app.ts` reads `localStorage`
+   directly and applies it immediately — this is the FOUC-safe path, it never
+   waits on a network round trip.
+2. **After login or session-restore**: `reconcileFromServer()` fetches
+   `GET /v1/preferences` and overwrites local state — **server always wins**
+   over whatever `localStorage`/OS `prefers-color-scheme` produced at boot.
+   This runs on every login and every full page load with a live session
+   (cheap, single GET, accepted at this scale).
+3. **Every user-initiated change** (Settings page, or `AppSidebar`'s inline
+   theme/locale chips) applies the change locally first (instant feedback,
+   also written to `localStorage` so it survives the *next* boot before
+   reconciliation completes), then calls `updatePreferences(...)` in the
+   background. A failed background persist is swallowed where there is no UI
+   room for an inline error (the sidebar chips); Settings surfaces it with the
+   existing inline-error-line pattern. Nothing rolls back the optimistic local
+   apply — the next login's reconciliation is the eventual-consistency
+   backstop if the persist silently failed.
+
+### AI `subjectId` resolution flow
+
+`ContextHints.subjectId()` (a resolved, ownership-validated id — never a raw
+client-sent id trusted as-is) flows into `LearningContextService.build()`,
+which pulls the subject's real name/description/material titles (via
+`SubjectService.resolveOwnedSubject`, same 110000/110001 codes as every other
+subject access) and scopes note counts/titles to that subject. Chat endpoints
+persist the link on `ai_conversations.subject_id` (V5) with `subject_name`
+kept as a display snapshot so conversation lists stay readable after a rename
+or delete; D2's cascade nullifies `subject_id` on delete but leaves the
+snapshot. String-hint fallback (client-supplied name/description, no id)
+remains supported for legacy callers and every one-shot generation endpoint,
+which still takes text hints by design. Full detail: `docs/ai-engine.md` §
+Context pipeline.
+
+### Auth extension points reserved (unchanged from Phase 2, still not implemented)
+
+Registration, email verification, password reset, and OAuth2/third-party
+login remain deliberately out of scope this phase — the schema/seam reservations
+listed under § Identity & security (`roles`/`permissions` tables, empty
+`UserPrincipal` authorities, `TokenService.revokeAllForUser`,
+`app.security.password-policy` config) are unchanged and still the intended
+extension points when that work is scoped. Phase 7 added one small,
+non-conflicting auth surface: `PUT /v1/auth/profile` (nickname/avatar only,
+same `auth` package/error range, no new codes) and `createdAt` on
+`AuthUserResponse` (backs Profile's real "member since").
 
 ## Git
 
