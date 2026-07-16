@@ -1,104 +1,93 @@
 # Phase 7 Handoff — Commercial Product Foundation
 
-Status as of 2026-07-14 (fourth session — step 6 completed; frontend workstream B has begun). This document is the resume point for continuing Phase 7 in a new session. Read this first; the approved plan with full rationale lives at `D:\claude-data\plans\refactored-wiggling-floyd.md` (outside the repo — confirm it exists in the new environment, or regenerate from this handoff plus `docs/architecture.md`).
+Status as of 2026-07-14 (fifth session — step 7 completed). This document is the resume point for continuing Phase 7 in a new session. Read this first, together with `docs/DEVELOPMENT_GUIDE.md` (the long-term engineering reference, added this session); the approved plan with full rationale lives at `D:\claude-data\plans\refactored-wiggling-floyd.md` (outside the repo — confirm it exists, or regenerate from this handoff plus `docs/architecture.md`).
 
 ## What Phase 7 is
 
-The repo was restored to the final Phase 6 commit (`85f7df3`) and Phase 7 was **redesigned from scratch** as "Commercial Product Foundation" — turning the Phase 6 codebase into a per-user, database-driven SaaS foundation with a premium 3-mode theme and a productivity-app Workspace. Full context, all 10 design decisions (D1–D10), and the complete 13-step plan are in the plan file above — **do not re-derive them.**
-
-**Ignore any reference to an earlier "Phase 7 — Data Realization" attempt** (different error-code ranges, e.g. Subject 140000) — discarded before this redesign.
+The repo was restored to the final Phase 6 commit (`85f7df3`) and Phase 7 was **redesigned from scratch** as "Commercial Product Foundation" — a per-user, database-driven SaaS foundation with a premium 3-mode theme and a productivity-app Workspace. Full context, design decisions D1–D10, and the 13-step plan are in the plan file — **do not re-derive them.** Ignore any reference to an earlier "Phase 7 — Data Realization" attempt (discarded).
 
 Out of scope this phase (do not build): registration/email/password-reset, payments, OSS/file upload, external auth, spaced-repetition engine, WebSockets, Docker/CI.
 
-## Session summary (2026-07-14, step 6)
+## Session summary (2026-07-14, step 7)
 
-Implemented B1 + B2 as one step and committed it as `c73f203`. Decisions made this session (downstream steps should respect them):
+Created `docs/DEVELOPMENT_GUIDE.md` (`7825ceb`), then implemented B3+B4 as one step (`cbbff8b`). Decisions made this session (downstream steps should respect them):
 
-- **`useAsync` is the D3 contract**: `{ data, loading, error, reload }`, runs immediately on setup, stale-run guard (only the latest run writes), non-`ApiError` failures normalized so templates always render `t(error.messageKey)`. Every data-driven view in steps 7–11 uses it — don't hand-roll load state again.
-- **Views that mutate list items keep a local working copy** (`ref<T[]>`) synced from `useAsync().data` by a `watch` — see NotesView (`notes`) and AiTutorView (`conversations`, which also carries loaded message threads across list rebuilds). Read-only views can bind `data` directly.
-- **`StatTile` API**: `label` (required), `value` (pre-formatted string), optional `icon`; the default slot replaces the value for richer content (B6's progress ring goes there). Formatting (durations, units, honest "—" for null metrics) stays in the view. Visuals match the old per-view `.stat-tile` CSS exactly — B6/B7/B9 should swap the copy-pasted tiles for it.
-- **API-module naming convention** (all 7 new modules follow it): `XxxDto` mirrors the backend response record, `CreateXxxPayload`/`UpdateXxxPayload` mirror the requests, string-literal unions for closed vocabularies (`SubjectStatus`, `TaskStatus`, `TaskPriority`, `MaterialType`, `ThemePreference`, `LocalePreference`). Clear sentinels (`subjectId: ''`, `dueAt: 0`, `title: ''`) are documented on the payload types.
-- **AI send seam is typed**: `SendMessagePayload` lives in `api/modules/ai.ts`; `ServerSseChatProvider`'s constructor context is `Omit<SendMessagePayload, 'content'>` and already forwards `subjectId`. **B4 only needs to pass `subjectId` into the provider context and `CreateConversationPayload`** — no provider surgery.
-- **AiTutorView deep-link fix** (landed as part of the retrofit): the `summaries` watch re-triggers `loadDetail(activeId)` once the list arrives, so `/ai-tutor/:id` opened directly now loads history (it silently didn't before, because the immediate `activeId` watcher ran against an empty list).
-- `src/types/components.d.ts` is auto-generated (unplugin-vue-components) — it picked up `StatTile`; always commit it alongside new components.
+- **`stores/subjects.ts` is the single client-side subject source.** Options-API Pinia store: `load()` (once; `force` re-fetches, used by error retry), `byId(id)` for enrichment, write-through `create/update/remove`, and `refresh(id)` to re-pull derived counts after linked-content changes. Every view that shows subject names/accents goes through it — **steps 8–10 must use it too** (Workspace `continueLearning`, Calendar session accents, Profile counts where applicable) instead of re-fetching or reading mocks.
+- **Backend `color`/`icon` are opaque strings; the frontend narrows them** via `subjectAccentOf()` / `subjectIconOf()` in `features/subjects/types.ts` (fallbacks `indigo` / `book-open`), with `SUBJECT_ACCENTS` / `SUBJECT_ICONS` as the dialog choice sets. Never render `subject.color` directly.
+- **Shared subject UI lives in `features/subjects/components/`**: `SubjectPicker.vue` (themed `el-select`, `null` = unlinked; callers map `null` → `''` wire sentinel on update paths) and `SubjectFormDialog.vue` (create/edit; status+progress only in edit mode; inline `t(errorKey)` failure line).
+- **Linkage conventions**: note picker persists immediately on change (`updateNote(id, { subjectId: v ?? '' })`); deck dialog sends `subjectId: form.subjectId ?? ''` on edit (always-send = clear-on-empty) and `?? undefined` on create; AI Tutor keeps a `selectedSubjectId` synced per active conversation and sends it on create (`subjectId ?? undefined`) and on every SSE send (`subjectId ?? ''` — re-sending the same id is an idempotent keep, cleared picker unlinks on next message). Subject-detail "Ask AI" now links via `subjectId` (server-side context resolution).
+- **`toApiError()` extracted to `api/types.ts`** — the one error normalizer, used by `useAsync` and the store. Use it for any new load-state code.
+- Mutation-dialog failures show an **inline `t(errorKey)` line inside the dialog** (form/delete dialogs); list-row mutation failures still `console.error` until C2's feedback pass.
+- `excerptOf`/`outlineOf` now accept `{ content: string }` so `NoteDto` works without adapters.
 
-Commits this session: `c73f203` (feat, step 6) and the docs commit containing this file (also adds `.claude/skills/verify/SKILL.md`, the repo's launch-and-drive verification recipe).
+Known cosmetic nit (deliberately left for C2): dialogs whose title derives from `form?.mode` flip to the edit title during the close animation (pattern inherited from FlashcardsView) — visible only mid-fade.
+
+Commits this session: `7825ceb` (DEVELOPMENT_GUIDE), `cbbff8b` (feat, step 7), plus the docs commit containing this file.
 
 ## Current project status
 
 - **Phase**: 7 (Commercial Product Foundation), phases 1–6 complete.
-- **Step**: 6 of 13 **done**. Next: **step 7 (B3+B4)** — Subjects frontend + cross-feature subject linkage.
+- **Step**: 7 of 13 **done**. Next: **step 8 (B5)** — Calendar + Tasks frontend.
 - **Branch**: `main`. Working tree: clean after the docs commit. Not pushed (push via SSH when asked; port 22 may be blocked → ssh.github.com:443).
-- Commit history for the phase: `1a20f23` (step 1) → `d93f07c` (step 2) → `ccdd41a` (step 3) → `cac1706` (step 4) → `b04b8b3` (docs) → `cdea352` (step 5) → `a9b1ed2` (docs) → `c73f203` (step 6) → this docs commit.
+- Phase commits: `1a20f23` → `d93f07c` → `ccdd41a` → `cac1706` → `b04b8b3` (docs) → `cdea352` → `a9b1ed2` (docs) → `c73f203` → `d235259` (docs) → `7825ceb` (guide) → `cbbff8b` (step 7) → this docs commit.
 
-## Progress: steps 1–6 of 13 done
+## Progress: steps 1–7 of 13 done
 
 | # | Step | Status |
 |---|------|--------|
 | 1 | A1+A2 — Migrations V4/V5, pom fix, `common/OwnershipGuard` | **Done**, `1a20f23` |
 | 2 | A3+A4 — Subject (110000s) + Material (120000s) modules | **Done**, `d93f07c` |
 | 3 | A5+A6+A7 — Task (150000s), Calendar (160000s), Note/Deck subjectId | **Done**, `ccdd41a` |
-| 4 | A8 — Preferences (200000s) + auth prep (`/me` createdAt, `PUT /auth/profile`) | **Done**, `cac1706` |
-| 5 | A9+A10 — Analytics (180000s), Workspace summary (170000s), AI subjectId context | **Done**, `cdea352` |
-| 6 | B1+B2 — Frontend api modules, `useAsync` composable, `StatTile` component | **Done**, `c73f203` |
-| 7 | B3+B4 — Subjects frontend + cross-feature subject linkage | **Not started — resume here** |
-| 8 | B5 — Calendar + Tasks frontend | Not started |
+| 4 | A8 — Preferences (200000s) + auth prep | **Done**, `cac1706` |
+| 5 | A9+A10 — Analytics (180000s), Workspace (170000s), AI subjectId context | **Done**, `cdea352` |
+| 6 | B1+B2 — Frontend api modules, `useAsync`, `StatTile` | **Done**, `c73f203` |
+| 7 | B3+B4 — Subjects frontend + cross-feature subject linkage | **Done**, `cbbff8b` |
+| 8 | B5 — Calendar + Tasks frontend | **Not started — resume here** |
 | 9 | B6 — Workspace redesign (centerpiece) | Not started |
 | 10 | B7+B8 — Analytics/Profile frontend, delete all 8 mock.ts, 404 route, index.html title | Not started |
 | 11 | B9 — Preferences wiring (Settings, theme/locale reconciliation) | Not started |
 | 12 | C1+C2 — Dark theme black+purple luxury glass re-skin, UX unification pass | Not started |
 | 13 | D — Docs (architecture.md Phase 7 section, new mock-migration.md, etc.) | Not started |
 
-## What exists now (backend — complete; steps 7–11 consume it, don't change it)
+## What exists now
 
-Unchanged from the previous handoff: OwnershipGuard; subject/material/task/calendar/preference/analytics/workspace modules; AI subject context; auth prep; wire conventions; 53 backend tests green. Do not modify backend code in steps 7–11 unless a defect is found. Key reminders:
+**Backend** — complete and stable since step 5; steps 8–11 consume it, don't change it (53 tests green). Reminders: `AnalyticsService.streakDays()/activity()` are the only streak/per-day math; `AiConversation` has ALWAYS-update fields (never partial `updateById`); `resolveOwnedSubject` for subject fields; task/calendar wire conventions documented on the DTOs (`dueAt: 0` unschedules, `endsAt > startsAt` validated, calendar list requires `?from=&to=`).
 
-- `AnalyticsService.streakDays()`/`activity()` are the single source of streak/per-day math; `ActivityDayResponse.date` is an ISO local date string; subject-shares has a null-id bucket; workspace reuses other modules' DTOs.
-- `AiConversation` has ALWAYS-update fields — never write it via a partial-entity `updateById`; load the row first.
-- `SubjectService.resolveOwnedSubject(userId, wireId)` when a caller needs subject fields.
+**Frontend (through step 7)** — full `api/modules/` coverage; `useAsync` + `toApiError`; `StatTile`; subjects store + picker + form dialog; SubjectsView/SubjectDetailView fully real (CRUD, materials tab with external links, D2 delete dialog, empty state with working starter chips); note/deck/AI-conversation subject linkage live end-to-end; NotesView/FlashcardsView/AiTutorView free of `subjects/mock`.
 
-## What exists now (frontend — new this session)
-
-- **`api/modules/`** now covers the entire Phase 7 backend: `subject.ts`, `material.ts`, `task.ts`, `calendar.ts`, `workspace.ts`, `analytics.ts`, `preferences.ts` (all new), plus extended `auth.ts` (`AuthUser.createdAt`, `updateProfile`) and `ai.ts` (`subjectId` on `ConversationSummaryDto`, `CreateConversationPayload`, `SendMessagePayload`). Wire types were written against the actual Java records, not the plan text.
-- **`composables/useAsync.ts`** + `composables/__tests__/useAsync.spec.ts` (6 cases: resolve, ApiError pass-through, normalization, reload-after-error, stale success discarded, stale failure discarded).
-- **`components/StatTile.vue`** — barrel-registered, showcased in `/design-system` under "Stat tiles" (4 demo tiles incl. "—" and slot content).
-- **NotesView / AiTutorView** initial-list loads now render Skeleton → content | empty | error-with-retry (`.list-state`/`.conv-state` wrappers, `AppEmpty` + `common.retry`). Mutation-path `console.error` catches were deliberately left — feedback unification is C2's toast pass, not D3.
-- **No locale changes were needed** — the error keys (`error.network` etc.) and `common.retry` already existed; the i18n mirror test was therefore not in scope this step.
-
-## Frontend still on mocks (expected until later steps)
-
-All 8 `features/*/mock.ts` files still exist and are still imported by Workspace/Analytics/Calendar/Profile/Subjects views and the `getSubject()` enrichment in Notes/AiTutor/Flashcards. They are deleted in step 10 (B8) after their consumers are rewired (B3–B7).
+**Mocks remaining** (deleted in step 10 after rewiring): `subjects/mock.ts` still exists but is now only imported by WorkspaceView, CalendarView, ProfileView and `analytics|workspace/mock.ts`; `tasks|calendar|notes|flashcards|analytics|workspace|ai-tutor` mock files still present.
 
 ## Exact resume point
 
-Start **step 7 (B3+B4)** — Subjects frontend + subject linkage:
+Start **step 8 (B5)** — Calendar + Tasks frontend:
 
-1. Read this file, then `features/subjects/SubjectsView.vue`, `SubjectDetailView.vue`, `features/subjects/types.ts` + `mock.ts` (shapes being replaced), and `api/modules/subject.ts`/`material.ts` (already done).
-2. B3: Pinia `subjects` store (list cache + `byId` — replaces every mock `getSubject()` enrichment); SubjectsView/SubjectDetailView real CRUD dialogs (accent-token colors, icon registry); materials tab (links only, upload "coming soon" per D8); delete dialog wording per D2 (materials deleted, notes/decks/tasks/sessions/conversations unlinked); empty state = "Create your first subject" CTA + suggested-starter chips creating real subjects.
-3. B4: subject picker in Note editor & deck dialogs (uses note/deck `subjectId` from step 3's backend); AI-Tutor subject selector passes `subjectId` through `CreateConversationPayload` and the provider context (seam already typed); NotesView/FlashcardsView/AiTutorView drop their `subjects/mock` imports.
-4. Use `useAsync` for all loads (working-copy watch pattern where views mutate items); keep `StatTile` in mind for any tile markup touched.
-5. Verification baseline: `npm run type-check && npm run test:unit && npm run build`, i18n mirror test after any locale change (B3/B4 **will** add locale strings — mirror zh/en), then launch + drive per `.claude/skills/verify/SKILL.md`.
+1. Read this file, `docs/DEVELOPMENT_GUIDE.md`, then `features/calendar/CalendarView.vue` + `features/calendar/mock.ts` + `features/tasks/mock.ts` + `features/tasks/types.ts` (shapes being replaced) and `api/modules/calendar.ts`/`task.ts` (done in step 6).
+2. Per the plan: **windowed session fetch per visible month** (`listStudySessions(from, to)` — the window is mandatory); tasks render on their due dates; task status toggleable from the calendar; a create/edit task dialog **shared with Workspace** (B6 reuses it — put it under `features/tasks/components/`).
+3. Sessions/tasks link to subjects — use `useSubjectsStore().byId` + `subjectAccentOf` for accents and `SubjectPicker` in dialogs (see the deck-dialog pattern for the `'' `-unlink convention).
+4. Use `useAsync` (or the store pattern) for loads with the standard D3 states; month navigation refetches the window.
+5. Verify per `docs/DEVELOPMENT_GUIDE.md` + `.claude/skills/verify/SKILL.md`: static baseline (type-check, test, lint, build), i18n mirror (B5 adds locale strings), then a Playwright drive (create/edit/toggle/delete a task, create a session in the visible month, month navigation refetch, error+retry, mobile viewport) with API-level assertions and full data cleanup.
 
-## Verification performed (step 6)
+## Verification performed (step 7)
 
-- **Static/tests/build**: `vue-tsc` clean; vitest 8/8 (locales mirror + 6 useAsync); `vite build` clean.
-- **Runtime (Playwright drive of the real app, chromium, demo user)**: login → notes list loads (2 pre-existing notes); blocked `**/v1/notes` → error state rendered (`网络连接失败，请稍后重试` + 重试) → unblock + click retry → list recovered. Same cycle for AI Tutor conversations. Deep link `/ai-tutor/2076312481618776066` on a fresh mount → history loaded (the fixed path). SSE send with the new typed payload → conversation created, stream returned the graceful no-key error reply (expected; no `DEEPSEEK_API_KEY` here). `/design-system` → 4 StatTiles render correctly (icon chip, value, caption, "—", slot content). Screenshots captured for error state and StatTile section.
-- **Data hygiene**: the drive-created conversation was deleted via API afterwards; conversations back to the single Phase 6 leftover. Dev servers stopped, ports 8080/5173 verified free.
-- **Intentionally not verified**: live DeepSeek streaming (no API key — same standing gap as before); the 7 new API modules' request paths beyond what the app exercises today (their first UI consumers arrive in steps 7–11; shapes were verified against the Java records and the live conversations list already shows `subjectId`).
+- **Static**: `vue-tsc` clean; vitest 8/8 (incl. locale mirror with the new keys); `oxlint`+`eslint` clean; `vite build` clean.
+- **Runtime (Playwright, chromium, demo user, zh locale)**: 14-step drive — subjects empty state (4 starter chips) → blocked `GET /v1/subjects` shows error+retry → retry recovers → starter chip creates a real subject and opens its detail → material created with external link (href verified) → subject edited via dialog (name + accent swatch, visible in grid) → second subject via New-subject dialog (icon picker) → grid shows both → note linked via editor picker (accent label appears; note then visible in subject's Related notes) → deck created linked (accent bar colored) and unlinked via cleared picker (bar back to muted) → AI chat created with subject context (stream finished on the expected no-key error reply) → 375px viewport: no horizontal overflow.
+- **API-level assertions**: conversation carried `subjectId` + `subjectName` snapshot; note carried `subjectId`; subject derived counts (`materialCount`/`noteCount`) correct; deck `subjectId` null after unlink.
+- **D2 exercised live**: deleting the subject with a material + linked note deleted the material and kept the note (`subjectId` → null); deleting the subject with a linked conversation kept the conversation (`subjectId` → null, name snapshot retained by design).
+- **Data hygiene**: both subjects, the deck and the drive conversation deleted; final baseline re-verified (0 subjects, 0 decks, 2 Phase 6 notes, 1 Phase 6 conversation). Servers stopped, ports freed.
+- **Intentionally not verified**: live DeepSeek streaming with real subject context (no API key — standing gap); material *edit* dialog round-trip was implemented but only create/delete were driven.
 
 ## Known risks / gotchas
 
-- **PowerShell mangles `""` in `git commit -m` here-strings** — write the message to a file and `git commit -F <file>`. Avoid non-ASCII in Git-Bash curl `-d` payloads.
-- **Stray Java/node processes hold ports 8080/5173 between sessions** — `netstat -ano | grep -E ':(8080|5173).*LISTEN'`, then `taskkill //PID <pid> //F`. TaskStop on the background task does **not** reliably kill the child server process.
-- **Browser verification recipe** (Playwright via npx cache, login selectors, route-abort for error states, row-button off-by-one gotcha) is written down in `.claude/skills/verify/SKILL.md` — use it instead of re-deriving.
-- **Login field is `usernameOrEmail`** (`{"usernameOrEmail":"demo","password":"Demo123456"}`).
-- **Dev DB is NOT fully clean**: two notes (`未命名笔记`, `Verify Note`) and one conversation (`Hello, explain recursion`) remain from *Phase 6* verification — deliberately left. Everything created by step-6 verification was removed.
-- Analytics/streak use **server default timezone**; day-bucket test assertions assume no midnight straddle.
-- MySQL root password `1234`; mysql CLI at `C:\Program Files\MySQL\MySQL Server 9.1\bin\mysql.exe`. JDK 22, backend :8080, frontend :5173, demo login `demo`/`Demo123456`.
+- **Vite dev-server cold start breaks Playwright navigation**: the first render of a new Element Plus component (e.g. `el-select`) triggers "optimized dependencies changed" full-page reloads that abort SPA navigations mid-flight. **Warm up by visiting every touched route once before asserting** (see the warmup block in this session's drive; consider `optimizeDeps.include` if it keeps biting).
+- `git commit -m` mangling, port cleanup (`netstat`+`taskkill //PID`; TaskStop does not kill child servers), login field `usernameOrEmail`, non-ASCII in Git-Bash curl bodies — all unchanged; see `.claude/skills/verify/SKILL.md`.
+- **Dev DB baseline**: two Phase 6 notes (`未命名笔记`, `Verify Note`) and one conversation (`Hello, explain recursion`), all unlinked; everything step-7 verification created was removed.
+- EP select theming rides on the existing `element-theme.css` CSS-var bridge; C1 explicitly re-validates selects/dropdowns in dark mode.
+- MySQL root pwd `1234`; JDK 22; backend :8080, frontend :5173; demo login `demo`/`Demo123456`.
 
 ## Documentation state
 
-- `docs/ai-engine.md` — in sync (subject-resolution contract, updated step 5).
-- `docs/architecture.md` — untouched this session; Phase 7 section lands in step 13 per plan (plus the new `docs/mock-migration.md`).
-- `.claude/skills/verify/SKILL.md` — **new**: project verification recipe (launch, API drive, Playwright drive, data hygiene).
-- This file — rewritten for the step-6 boundary.
+- `docs/DEVELOPMENT_GUIDE.md` — **new this session**: long-term engineering reference (philosophy, conventions, verification workflow, commit/handoff strategy, review checklist). Constitution stays `docs/architecture.md`, which wins on conflict.
+- `docs/ai-engine.md` — in sync (subject-resolution contract).
+- `docs/architecture.md` — untouched; Phase 7 section + `docs/mock-migration.md` land in step 13.
+- `.claude/skills/verify/SKILL.md` — current; add the Vite warmup note when next touched.
+- This file — rewritten for the step-7 boundary.
