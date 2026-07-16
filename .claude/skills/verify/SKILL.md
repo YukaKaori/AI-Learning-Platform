@@ -28,8 +28,11 @@ NODE_PATH="C:/Users/10529/AppData/Local/npm-cache/_npx/361ceb562f3b3235/node_mod
 (If that hash is gone, `find "$(npm config get cache)/_npx" -maxdepth 4 -name playwright -type d`.)
 
 - Login page: fill `input:not([type="password"])` with `demo`, `input[type="password"]` with `Demo123456`, press Enter, wait for URL to leave `/login`. Default locale is zh-CN (retry button says 重试).
-- Force the D3 error state with `page.route('**/v1/<endpoint>', r => r.abort())` + reload; `unroute` before clicking retry.
+- **Vite cold-start warmup**: the first render of a new Element Plus component (el-select, el-date-picker, …) triggers an "optimized dependencies changed" full-page reload that aborts SPA navigation/clicks mid-flight. Before asserting, visit every touched route once AND open every dialog that mounts a new EP component, then `page.reload()`.
+- Force the D3 error state with `page.route(matcher, handler)` + trigger a fetch; `unroute` needs the **same** matcher/handler references (a fresh arrow function silently fails to unregister and retry keeps failing).
 - Gotcha: in list rows (e.g. `.conv-row`), the row item itself is a `<button>` — action buttons by index are off by one (nth(2) is archive, not delete).
+- Gotcha: never press Escape to dismiss an EP picker panel inside an AppDialog — Esc closes the dialog itself. Click the `.el-dialog__header` instead.
+- UI mutations are optimistic — after a toggle/edit, poll the API for the persisted state instead of asserting immediately.
 
 ## Data hygiene
 
