@@ -10,7 +10,7 @@ import type { ChatMessage } from './types'
  * which provider is wired in.
  */
 export interface ChatProvider {
-  /** Stable identifier, e.g. 'mock', 'server-sse'. */
+  /** Stable identifier, e.g. 'server-sse'. */
   readonly id: string
   /**
    * Stream the assistant reply for the given history as text chunks.

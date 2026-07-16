@@ -422,9 +422,10 @@ const enUS: typeof zhCN = {
   },
   analytics: {
     title: 'Learning Analytics',
-    subtitle: 'Demo data — real statistics connect once the backend is ready.',
+    subtitle: 'Your study time, streak and subject focus at a glance.',
     stats: {
       studyTime: 'Study time this week',
+      weekDelta: '{delta} vs last week',
       streak: 'Learning streak',
       streakUnit: '{n} days',
       completion: 'Task completion',
@@ -434,10 +435,14 @@ const enUS: typeof zhCN = {
     weekly: {
       title: 'Weekly activity',
       desc: 'Minutes studied per day, last 7 days',
+      empty: 'No study activity in the last 7 days yet',
+      emptyCta: 'Schedule a session',
     },
     subjectDistribution: {
       title: 'Time by subject',
       desc: 'Share of study time per subject, last 30 days',
+      unlinked: 'No subject',
+      empty: 'No study time in the last 30 days yet',
     },
     heatmap: {
       title: 'Study heatmap',
@@ -455,7 +460,8 @@ const enUS: typeof zhCN = {
       error: 'Generation failed — please try again.',
       weeklySummary: 'Weekly summary',
       weakPoints: 'Weak points & review',
-      snapshotStudyTime: 'Study time this week: {time} ({delta}% vs last week)',
+      snapshotStudyTime: 'Study time this week: {time} ({delta} vs last week)',
+      snapshotStudyTimeNoDelta: 'Study time this week: {time}',
       snapshotStreak: 'Current streak: {n} days',
       snapshotCompletion: 'Task completion: {n}%',
       snapshotAiUsage: 'AI chats this week: {n}',
@@ -467,16 +473,24 @@ const enUS: typeof zhCN = {
     title: 'Profile',
     memberSince: 'Member since {date}',
     learningOverview: 'Learning overview',
-    totalStudy: 'Total study time',
+    weekStudy: 'Study time this week',
     subjectsCount: 'Subjects',
     notesCount: 'Notes',
     streak: 'Streak',
+    streakUnit: '{n} days',
     account: {
       title: 'Account',
       username: 'Username',
       email: 'Email',
       nickname: 'Nickname',
       edit: 'Edit profile',
+    },
+    editDialog: {
+      title: 'Edit profile',
+      nickname: 'Nickname',
+      nicknamePlaceholder: 'Enter a nickname — blank shows your username',
+      avatar: 'Avatar URL',
+      avatarPlaceholder: 'Enter an image URL — blank clears the avatar',
     },
   },
   settings: {
@@ -618,6 +632,11 @@ const enUS: typeof zhCN = {
     timeout: 'Request timed out, please try again later',
     server: 'Service temporarily unavailable',
     unknown: 'An unknown error occurred',
+  },
+  notFound: {
+    title: 'Page not found',
+    desc: 'The page you are looking for does not exist or has moved.',
+    action: 'Back to workspace',
   },
 }
 

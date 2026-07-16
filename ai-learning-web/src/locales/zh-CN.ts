@@ -419,9 +419,10 @@ export default {
   },
   analytics: {
     title: '学习分析',
-    subtitle: '演示数据——真实统计将在后端就绪后接入。',
+    subtitle: '学习时长、连续记录与科目分布一览。',
     stats: {
       studyTime: '本周学习时长',
+      weekDelta: '较上周 {delta}',
       streak: '连续学习',
       streakUnit: '{n} 天',
       completion: '任务完成率',
@@ -431,10 +432,14 @@ export default {
     weekly: {
       title: '每周学习活跃度',
       desc: '最近 7 天每日学习分钟数',
+      empty: '最近 7 天还没有学习记录',
+      emptyCta: '安排一次学习',
     },
     subjectDistribution: {
       title: '科目时间分布',
       desc: '最近 30 天各科目学习时长占比',
+      unlinked: '未关联科目',
+      empty: '最近 30 天还没有学习时长',
     },
     heatmap: {
       title: '学习热力图',
@@ -452,7 +457,8 @@ export default {
       error: '生成失败，请重试。',
       weeklySummary: '本周学习总结',
       weakPoints: '薄弱环节与复习建议',
-      snapshotStudyTime: '本周学习时长：{time}（较上周 {delta}%）',
+      snapshotStudyTime: '本周学习时长：{time}（较上周 {delta}）',
+      snapshotStudyTimeNoDelta: '本周学习时长：{time}',
       snapshotStreak: '连续学习天数：{n} 天',
       snapshotCompletion: '任务完成率：{n}%',
       snapshotAiUsage: '本周 AI 对话次数：{n}',
@@ -464,16 +470,24 @@ export default {
     title: '个人主页',
     memberSince: '加入于 {date}',
     learningOverview: '学习概览',
-    totalStudy: '累计学习',
+    weekStudy: '本周学习时长',
     subjectsCount: '科目',
     notesCount: '笔记',
     streak: '连续学习',
+    streakUnit: '{n} 天',
     account: {
       title: '账号',
       username: '用户名',
       email: '邮箱',
       nickname: '昵称',
       edit: '编辑资料',
+    },
+    editDialog: {
+      title: '编辑资料',
+      nickname: '昵称',
+      nicknamePlaceholder: '输入昵称，留空则显示用户名',
+      avatar: '头像链接',
+      avatarPlaceholder: '输入图片 URL，留空则清除头像',
     },
   },
   settings: {
@@ -596,5 +610,10 @@ export default {
     timeout: '请求超时，请稍后重试',
     server: '服务暂时不可用',
     unknown: '发生未知错误',
+  },
+  notFound: {
+    title: '页面不存在',
+    desc: '你要访问的页面不存在，或已被移动。',
+    action: '返回工作台',
   },
 }

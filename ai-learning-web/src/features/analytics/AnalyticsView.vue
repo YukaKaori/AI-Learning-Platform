@@ -1,31 +1,138 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppButton, AppCard, AppEmpty, AppIcon, AppLoading, AppPageHeader, AppTooltip } from '@/components'
+import { useRouter } from 'vue-router'
+import {
+  AppButton,
+  AppCard,
+  AppEmpty,
+  AppIcon,
+  AppLoading,
+  AppPageHeader,
+  AppSkeleton,
+  AppTooltip,
+  StatTile,
+} from '@/components'
+import { useAsync } from '@/composables/useAsync'
 import { useDuration } from '@/composables/useDuration'
-import { accentColor } from '@/features/subjects/types'
+import { accentColor, subjectAccentOf } from '@/features/subjects/types'
 import { generateWeakPoints, generateWeeklySummary } from '@/api/modules/ai'
-import { HEATMAP_MAX, heatmap, subjectShares, summary, weeklyActivity } from './mock'
+import {
+  getActivity,
+  getAnalyticsSummary,
+  getSubjectShares,
+  type ActivityDayDto,
+} from '@/api/modules/analytics'
+import { parseIsoDate } from '@/utils/date'
 
-const { t, d } = useI18n()
+/** 12 weeks × 7 — one zero-filled series feeds both the bar chart (last 7) and the heatmap. */
+const HEATMAP_DAYS = 84
+const SHARES_WINDOW_DAYS = 30
+
+const { t, d, locale } = useI18n()
+const router = useRouter()
 const { formatMinutes } = useDuration()
 
-const weekMax = computed(() => Math.max(...weeklyActivity.map((day) => day.minutes), 1))
-const shareTotal = computed(() => subjectShares.reduce((sum, s) => sum + s.minutes, 0))
+const { data, loading, error, reload } = useAsync(async () => {
+  const [summary, activity, shares] = await Promise.all([
+    getAnalyticsSummary(),
+    getActivity(HEATMAP_DAYS),
+    getSubjectShares(SHARES_WINDOW_DAYS),
+  ])
+  return { summary, activity, shares }
+})
+
+const showSkeleton = computed(() => loading.value && data.value === null)
+
+// --- Stat tiles -------------------------------------------------------------
+
+/** Signed delta text; a null metric renders "—", never a fabricated 0. */
+function deltaText(value: number | null): string {
+  if (value === null) return '—'
+  return value > 0 ? `+${value}%` : `${value}%`
+}
+
+const completionText = computed(() => {
+  const percent = data.value?.summary.taskCompletionPercent
+  return percent === null || percent === undefined ? '—' : `${percent}%`
+})
+
+// --- Weekly bar chart (last 7 days of the shared series) ----------------------
+
+const weekActivity = computed(() => data.value?.activity.slice(-7) ?? [])
+
+const weekBars = computed(() => {
+  const days = weekActivity.value
+  const max = days.reduce((m, day) => Math.max(m, day.minutes), 0)
+  // Direct-label selectively: only the (most recent) busiest day.
+  const lastMaxIndex = days.reduce(
+    (index, day, i) => (max > 0 && day.minutes === max ? i : index),
+    -1,
+  )
+  return days.map((day, i) => ({
+    date: day.date,
+    minutes: day.minutes,
+    heightPercent: max > 0 ? Math.max(4, Math.round((day.minutes / max) * 100)) : 0,
+    showLabel: i === lastMaxIndex,
+  }))
+})
+
+const weekTotalMinutes = computed(
+  () => weekActivity.value.reduce((sum, day) => sum + day.minutes, 0),
+)
+
+const weekdayFormat = computed(
+  () => new Intl.DateTimeFormat(locale.value, { weekday: 'short' }),
+)
+
+function barTooltip(bar: { date: string; minutes: number }): string {
+  return `${d(parseIsoDate(bar.date), 'short')} · ${formatMinutes(bar.minutes)}`
+}
+
+// --- Study heatmap (12 week-columns × 7 days, oldest first) -------------------
+
+const heatWeeks = computed<ActivityDayDto[][]>(() => {
+  const days = data.value?.activity ?? []
+  const weeks: ActivityDayDto[][] = []
+  for (let i = 0; i < days.length; i += 7) {
+    weeks.push(days.slice(i, i + 7))
+  }
+  return weeks
+})
+
+/** Intensity is relative to the user's own busiest day in the window. */
+const heatMax = computed(
+  () => data.value?.activity.reduce((m, day) => Math.max(m, day.minutes), 0) ?? 0,
+)
 
 function heatCellColor(minutes: number): string {
-  if (minutes === 0) return 'var(--color-muted-soft)'
-  const intensity = Math.min(1, minutes / HEATMAP_MAX)
+  if (minutes === 0 || heatMax.value === 0) return 'var(--color-muted-soft)'
+  const intensity = Math.min(1, minutes / heatMax.value)
   const pct = Math.round(15 + intensity * 70)
   return `color-mix(in srgb, var(--color-primary) ${pct}%, var(--color-surface))`
 }
 
 const heatLegendSteps = [0, 0.25, 0.5, 0.75, 1]
 
+// --- Subject shares (30-day window; null bucket = unlinked time) --------------
+
+const shareRows = computed(() => {
+  const shares = data.value?.shares ?? []
+  const total = shares.reduce((sum, share) => sum + share.minutes, 0)
+  return shares.map((share) => ({
+    key: share.subjectId ?? 'unlinked',
+    name: share.subjectId !== null ? share.subjectName! : t('analytics.subjectDistribution.unlinked'),
+    color: share.subjectId !== null ? accentColor(subjectAccentOf(share.color)) : 'var(--color-muted)',
+    minutes: share.minutes,
+    widthPercent: total > 0 ? (share.minutes / total) * 100 : 0,
+    percent: total > 0 ? Math.round((share.minutes / total) * 100) : 0,
+  }))
+})
+
 // --- AI insights ------------------------------------------------------------
-// Reuses the existing /v1/ai/analytics/* endpoints — the (still mock) stats
-// snapshot is sent as a client-supplied text field, same pattern as the
-// Subject-page AI actions (see docs/ai-engine.md for the scoping note).
+// Reuses the /v1/ai/analytics/* endpoints — the real stats snapshot is sent as
+// a client-supplied text field, same pattern as the Subject-page AI actions
+// (see docs/ai-engine.md for the scoping note).
 
 const insightsLoading = ref(false)
 const insightsError = ref(false)
@@ -34,20 +141,39 @@ const weakPointsText = ref<string | null>(null)
 const hasInsights = computed(() => weeklySummaryText.value !== null && weakPointsText.value !== null)
 
 function statsSnapshotText(): string {
-  return [
-    t('analytics.ai.snapshotStudyTime', { time: formatMinutes(summary.weekMinutes), delta: summary.weekDelta }),
+  const snapshot = data.value
+  if (!snapshot) return ''
+  const { summary } = snapshot
+  const lines = [
+    summary.weekDeltaPercent !== null
+      ? t('analytics.ai.snapshotStudyTime', {
+          time: formatMinutes(summary.weekMinutes),
+          delta: deltaText(summary.weekDeltaPercent),
+        })
+      : t('analytics.ai.snapshotStudyTimeNoDelta', { time: formatMinutes(summary.weekMinutes) }),
     t('analytics.ai.snapshotStreak', { n: summary.streakDays }),
-    t('analytics.ai.snapshotCompletion', { n: summary.taskCompletion }),
-    t('analytics.ai.snapshotAiUsage', { n: summary.aiChatsThisWeek }),
-    `${t('analytics.ai.snapshotDaily')}: ${weeklyActivity.map((day) => formatMinutes(day.minutes)).join(', ')}`,
-    `${t('analytics.ai.snapshotSubjects')}: ${subjectShares
-      .map((share) => `${share.subject.name} ${formatMinutes(share.minutes)}`)
+  ]
+  if (summary.taskCompletionPercent !== null) {
+    lines.push(t('analytics.ai.snapshotCompletion', { n: summary.taskCompletionPercent }))
+  }
+  lines.push(t('analytics.ai.snapshotAiUsage', { n: summary.aiChatsThisWeek }))
+  lines.push(
+    `${t('analytics.ai.snapshotDaily')}: ${weekActivity.value
+      .map((day) => formatMinutes(day.minutes))
       .join(', ')}`,
-  ].join('\n')
+  )
+  if (shareRows.value.length > 0) {
+    lines.push(
+      `${t('analytics.ai.snapshotSubjects')}: ${shareRows.value
+        .map((row) => `${row.name} ${formatMinutes(row.minutes)}`)
+        .join(', ')}`,
+    )
+  }
+  return lines.join('\n')
 }
 
 async function generateInsights() {
-  if (insightsLoading.value) return
+  if (insightsLoading.value || !data.value) return
   insightsLoading.value = true
   insightsError.value = false
   try {
@@ -55,8 +181,8 @@ async function generateInsights() {
     const [weekly, weak] = await Promise.all([generateWeeklySummary(snapshot), generateWeakPoints(snapshot)])
     weeklySummaryText.value = weekly.content
     weakPointsText.value = weak.content
-  } catch (error) {
-    console.error(error)
+  } catch (caught) {
+    console.error(caught)
     insightsError.value = true
   } finally {
     insightsLoading.value = false
@@ -68,152 +194,178 @@ async function generateInsights() {
   <div class="page">
     <AppPageHeader :title="t('analytics.title')" :subtitle="t('analytics.subtitle')" />
 
-    <div class="stat-row">
-      <AppCard variant="flat" class="stat-tile">
-        <span class="stat-icon"><AppIcon name="clock" /></span>
-        <span class="stat-value">{{ formatMinutes(summary.weekMinutes) }}</span>
-        <span class="stat-label">{{ t('analytics.stats.studyTime') }}</span>
-      </AppCard>
-      <AppCard variant="flat" class="stat-tile">
-        <span class="stat-icon"><AppIcon name="flame" /></span>
-        <span class="stat-value">{{ t('analytics.stats.streakUnit', { n: summary.streakDays }) }}</span>
-        <span class="stat-label">{{ t('analytics.stats.streak') }}</span>
-      </AppCard>
-      <AppCard variant="flat" class="stat-tile">
-        <span class="stat-icon"><AppIcon name="check-circle" /></span>
-        <span class="stat-value">{{ summary.taskCompletion }}%</span>
-        <span class="stat-label">{{ t('analytics.stats.completion') }}</span>
-      </AppCard>
-      <AppCard variant="flat" class="stat-tile">
-        <span class="stat-icon"><AppIcon name="bot" /></span>
-        <span class="stat-value">
-          {{ t('analytics.stats.aiUsageUnit', { n: summary.aiChatsThisWeek }) }}
-        </span>
-        <span class="stat-label">{{ t('analytics.stats.aiUsage') }}</span>
-      </AppCard>
+    <!-- Loading -->
+    <div v-if="showSkeleton" aria-hidden="true">
+      <div class="stat-row">
+        <AppSkeleton v-for="n in 4" :key="n" variant="block" height="104px" />
+      </div>
+      <div class="two-col">
+        <AppSkeleton variant="block" height="280px" />
+        <AppSkeleton variant="block" height="280px" />
+      </div>
+      <AppSkeleton variant="block" height="200px" />
     </div>
 
-    <div class="two-col">
-      <AppCard variant="flat" class="chart-card">
-        <h2 class="chart-title">{{ t('analytics.weekly.title') }}</h2>
-        <p class="chart-desc">{{ t('analytics.weekly.desc') }}</p>
-        <div class="bar-chart" role="img" :aria-label="t('analytics.weekly.title')">
-          <AppTooltip
-            v-for="day in weeklyActivity"
-            :key="day.day"
-            :content="formatMinutes(day.minutes)"
-            placement="top"
-          >
-            <div class="bar-column">
-              <div class="bar-track">
-                <div
-                  class="bar-fill"
-                  :style="{ height: `${(day.minutes / weekMax) * 100}%` }"
-                ></div>
-              </div>
-              <span class="bar-label">{{ d(day.day, 'short') }}</span>
-            </div>
-          </AppTooltip>
-        </div>
-      </AppCard>
+    <!-- Error -->
+    <AppEmpty v-else-if="error" icon="alert-circle" :title="t(error.messageKey)">
+      <template #action>
+        <AppButton size="sm" variant="soft" @click="reload">{{ t('common.retry') }}</AppButton>
+      </template>
+    </AppEmpty>
 
-      <AppCard variant="flat" class="chart-card">
-        <h2 class="chart-title">{{ t('analytics.subjectDistribution.title') }}</h2>
-        <p class="chart-desc">{{ t('analytics.subjectDistribution.desc') }}</p>
-        <ul class="share-list">
-          <li v-for="share in subjectShares" :key="share.subject.id" class="share-row">
-            <span
-              class="share-dot"
-              :style="{ backgroundColor: accentColor(share.subject.accent) }"
-            ></span>
-            <span class="share-name">{{ share.subject.name }}</span>
-            <div class="share-track">
-              <AppTooltip :content="formatMinutes(share.minutes)" placement="top">
-                <div
-                  class="share-fill"
-                  :style="{
-                    width: `${(share.minutes / shareTotal) * 100}%`,
-                    backgroundColor: accentColor(share.subject.accent),
-                  }"
-                ></div>
+    <template v-else-if="data">
+      <div class="stat-row">
+        <StatTile icon="clock" :label="t('analytics.stats.studyTime')">
+          {{ formatMinutes(data.summary.weekMinutes) }}
+          <span class="tile-delta">
+            {{ t('analytics.stats.weekDelta', { delta: deltaText(data.summary.weekDeltaPercent) }) }}
+          </span>
+        </StatTile>
+        <StatTile
+          icon="flame"
+          :label="t('analytics.stats.streak')"
+          :value="t('analytics.stats.streakUnit', { n: data.summary.streakDays })"
+        />
+        <StatTile
+          icon="check-circle"
+          :label="t('analytics.stats.completion')"
+          :value="completionText"
+        />
+        <StatTile
+          icon="bot"
+          :label="t('analytics.stats.aiUsage')"
+          :value="t('analytics.stats.aiUsageUnit', { n: data.summary.aiChatsThisWeek })"
+        />
+      </div>
+
+      <div class="two-col">
+        <AppCard variant="flat" class="chart-card">
+          <h2 class="chart-title">{{ t('analytics.weekly.title') }}</h2>
+          <p class="chart-desc">{{ t('analytics.weekly.desc') }}</p>
+          <div v-if="weekTotalMinutes > 0" class="week-chart">
+            <div class="chart-bars">
+              <AppTooltip v-for="bar in weekBars" :key="bar.date" :content="barTooltip(bar)">
+                <div class="bar-slot" tabindex="0" :aria-label="barTooltip(bar)">
+                  <span v-if="bar.showLabel" class="bar-label">
+                    {{ formatMinutes(bar.minutes) }}
+                  </span>
+                  <span
+                    class="bar"
+                    :class="{ zero: bar.minutes === 0 }"
+                    :style="bar.minutes > 0 ? { height: `${bar.heightPercent}%` } : undefined"
+                  ></span>
+                </div>
               </AppTooltip>
             </div>
-            <span class="share-value">
-              {{ Math.round((share.minutes / shareTotal) * 100) }}%
-            </span>
-          </li>
-        </ul>
+            <div class="chart-days">
+              <span v-for="bar in weekBars" :key="bar.date" class="chart-day">
+                {{ weekdayFormat.format(parseIsoDate(bar.date)) }}
+              </span>
+            </div>
+          </div>
+          <div v-else class="chart-empty">
+            <AppIcon name="trending-up" class="chart-empty-icon" aria-hidden="true" />
+            <p class="chart-empty-text">{{ t('analytics.weekly.empty') }}</p>
+            <AppButton size="sm" variant="soft" @click="router.push({ name: 'calendar' })">
+              {{ t('analytics.weekly.emptyCta') }}
+            </AppButton>
+          </div>
+        </AppCard>
+
+        <AppCard variant="flat" class="chart-card">
+          <h2 class="chart-title">{{ t('analytics.subjectDistribution.title') }}</h2>
+          <p class="chart-desc">{{ t('analytics.subjectDistribution.desc') }}</p>
+          <ul v-if="shareRows.length > 0" class="share-list">
+            <li v-for="row in shareRows" :key="row.key" class="share-row">
+              <span class="share-dot" :style="{ backgroundColor: row.color }"></span>
+              <span class="share-name">{{ row.name }}</span>
+              <div class="share-track">
+                <AppTooltip :content="formatMinutes(row.minutes)" placement="top">
+                  <div
+                    class="share-fill"
+                    :style="{ width: `${row.widthPercent}%`, backgroundColor: row.color }"
+                  ></div>
+                </AppTooltip>
+              </div>
+              <span class="share-value">{{ row.percent }}%</span>
+            </li>
+          </ul>
+          <div v-else class="chart-empty">
+            <AppIcon name="book-open" class="chart-empty-icon" aria-hidden="true" />
+            <p class="chart-empty-text">{{ t('analytics.subjectDistribution.empty') }}</p>
+          </div>
+        </AppCard>
+      </div>
+
+      <AppCard variant="flat" class="chart-card heatmap-card">
+        <div class="heatmap-head">
+          <div>
+            <h2 class="chart-title">{{ t('analytics.heatmap.title') }}</h2>
+            <p class="chart-desc">{{ t('analytics.heatmap.desc') }}</p>
+          </div>
+          <div class="heatmap-legend">
+            <span>{{ t('analytics.heatmap.less') }}</span>
+            <span
+              v-for="step in heatLegendSteps"
+              :key="step"
+              class="legend-swatch"
+              :style="{ backgroundColor: heatCellColor(step * heatMax) }"
+            ></span>
+            <span>{{ t('analytics.heatmap.more') }}</span>
+          </div>
+        </div>
+        <div class="heatmap-grid" role="img" :aria-label="t('analytics.heatmap.title')">
+          <div v-for="(week, wi) in heatWeeks" :key="wi" class="heatmap-week">
+            <AppTooltip
+              v-for="cell in week"
+              :key="cell.date"
+              :content="`${d(parseIsoDate(cell.date), 'short')} · ${formatMinutes(cell.minutes)}`"
+              placement="top"
+            >
+              <span class="heat-cell" :style="{ backgroundColor: heatCellColor(cell.minutes) }"></span>
+            </AppTooltip>
+          </div>
+        </div>
       </AppCard>
-    </div>
 
-    <AppCard variant="flat" class="chart-card heatmap-card">
-      <div class="heatmap-head">
-        <div>
-          <h2 class="chart-title">{{ t('analytics.heatmap.title') }}</h2>
-          <p class="chart-desc">{{ t('analytics.heatmap.desc') }}</p>
-        </div>
-        <div class="heatmap-legend">
-          <span>{{ t('analytics.heatmap.less') }}</span>
-          <span
-            v-for="step in heatLegendSteps"
-            :key="step"
-            class="legend-swatch"
-            :style="{ backgroundColor: heatCellColor(step * HEATMAP_MAX) }"
-          ></span>
-          <span>{{ t('analytics.heatmap.more') }}</span>
-        </div>
-      </div>
-      <div class="heatmap-grid" role="img" :aria-label="t('analytics.heatmap.title')">
-        <div v-for="(week, wi) in heatmap" :key="wi" class="heatmap-week">
-          <AppTooltip
-            v-for="cell in week"
-            :key="cell.day"
-            :content="`${d(cell.day, 'short')} · ${formatMinutes(cell.minutes)}`"
-            placement="top"
+      <AppCard variant="flat" class="chart-card insights-card">
+        <div class="insights-head">
+          <div>
+            <h2 class="chart-title">{{ t('analytics.ai.title') }}</h2>
+            <p class="chart-desc">{{ t('analytics.ai.desc') }}</p>
+          </div>
+          <AppButton
+            size="sm"
+            variant="soft"
+            icon-left="sparkles"
+            :loading="insightsLoading"
+            @click="generateInsights"
           >
-            <span class="heat-cell" :style="{ backgroundColor: heatCellColor(cell.minutes) }"></span>
-          </AppTooltip>
+            {{ hasInsights ? t('analytics.ai.regenerate') : t('analytics.ai.generate') }}
+          </AppButton>
         </div>
-      </div>
-    </AppCard>
 
-    <AppCard variant="flat" class="chart-card insights-card">
-      <div class="insights-head">
-        <div>
-          <h2 class="chart-title">{{ t('analytics.ai.title') }}</h2>
-          <p class="chart-desc">{{ t('analytics.ai.desc') }}</p>
+        <AppLoading v-if="insightsLoading" :label="t('analytics.ai.generating')" />
+        <p v-else-if="insightsError" class="insights-error">{{ t('analytics.ai.error') }}</p>
+        <AppEmpty v-else-if="!hasInsights" :title="t('analytics.ai.empty')" />
+        <div v-else class="insights-grid">
+          <div class="insight-block">
+            <h3 class="insight-title">
+              <AppIcon name="trending-up" size="sm" />
+              {{ t('analytics.ai.weeklySummary') }}
+            </h3>
+            <p class="insight-text">{{ weeklySummaryText }}</p>
+          </div>
+          <div class="insight-block">
+            <h3 class="insight-title">
+              <AppIcon name="target" size="sm" />
+              {{ t('analytics.ai.weakPoints') }}
+            </h3>
+            <p class="insight-text">{{ weakPointsText }}</p>
+          </div>
         </div>
-        <AppButton
-          size="sm"
-          variant="soft"
-          icon-left="sparkles"
-          :loading="insightsLoading"
-          @click="generateInsights"
-        >
-          {{ hasInsights ? t('analytics.ai.regenerate') : t('analytics.ai.generate') }}
-        </AppButton>
-      </div>
-
-      <AppLoading v-if="insightsLoading" :label="t('analytics.ai.generating')" />
-      <p v-else-if="insightsError" class="insights-error">{{ t('analytics.ai.error') }}</p>
-      <AppEmpty v-else-if="!hasInsights" :title="t('analytics.ai.empty')" />
-      <div v-else class="insights-grid">
-        <div class="insight-block">
-          <h3 class="insight-title">
-            <AppIcon name="trending-up" size="sm" />
-            {{ t('analytics.ai.weeklySummary') }}
-          </h3>
-          <p class="insight-text">{{ weeklySummaryText }}</p>
-        </div>
-        <div class="insight-block">
-          <h3 class="insight-title">
-            <AppIcon name="target" size="sm" />
-            {{ t('analytics.ai.weakPoints') }}
-          </h3>
-          <p class="insight-text">{{ weakPointsText }}</p>
-        </div>
-      </div>
-    </AppCard>
+      </AppCard>
+    </template>
   </div>
 </template>
 
@@ -231,33 +383,12 @@ async function generateInsights() {
   margin-bottom: var(--space-8);
 }
 
-.stat-tile :deep(.card-body) {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.stat-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin-bottom: var(--space-2);
-  border-radius: var(--radius-sm);
-  color: var(--color-primary);
-  background-color: var(--color-primary-soft);
-}
-
-.stat-value {
-  font-size: var(--text-xl);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: var(--tracking-tight);
-}
-
-.stat-label {
+.tile-delta {
+  display: block;
+  margin-top: 2px;
   font-size: var(--text-xs);
+  font-weight: 400;
+  letter-spacing: normal;
   color: var(--color-text-tertiary);
 }
 
@@ -280,43 +411,96 @@ async function generateInsights() {
   color: var(--color-text-tertiary);
 }
 
-/* Weekly bar chart */
-.bar-chart {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--space-2);
-  height: 160px;
-}
-
-.bar-column {
+/* Designed chart empty state */
+.chart-empty {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  flex: 1;
-  height: 100%;
+  min-height: 160px;
+  text-align: center;
 }
 
-.bar-track {
-  flex: 1;
-  width: 100%;
-  max-width: 32px;
+.chart-empty-icon {
+  color: var(--color-text-tertiary);
+}
+
+.chart-empty-text {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-tertiary);
+}
+
+/* Weekly bar chart — thin marks, one hue, honest zero stubs */
+.week-chart {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
 }
 
-.bar-fill {
-  width: 100%;
-  min-height: 4px;
-  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+.chart-bars {
+  display: flex;
+  align-items: stretch;
+  height: 160px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bar-slot {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+
+.bar-slot:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+.bar {
+  width: min(28px, 60%);
+  border-radius: 4px 4px 0 0;
   background-color: var(--color-primary);
-  transition: height var(--duration-slow) var(--ease-out);
+  transition:
+    height var(--duration-slow) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.bar-slot:hover .bar:not(.zero) {
+  background-color: var(--color-primary-hover);
+}
+
+.bar.zero {
+  height: 3px;
+  background-color: var(--color-muted-soft);
 }
 
 .bar-label {
   font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.chart-days {
+  display: flex;
+  padding-top: var(--space-2);
+}
+
+.chart-day {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-xs);
   color: var(--color-text-tertiary);
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Subject share list */
@@ -362,6 +546,7 @@ async function generateInsights() {
 
 .share-fill {
   height: 100%;
+  min-width: 2px;
   border-radius: var(--radius-full);
 }
 

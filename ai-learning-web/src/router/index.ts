@@ -110,6 +110,14 @@ const router = createRouter({
         },
       ],
     },
+    {
+      // Branded 404 — full-bleed, reachable without a session (the CTA into
+      // the workspace routes through the auth guard like any deep link).
+      path: '/:pathMatch(.*)*',
+      name: 'not-found',
+      component: () => import('@/views/NotFoundView.vue'),
+      meta: { titleKey: 'notFound.title' },
+    },
   ],
 })
 

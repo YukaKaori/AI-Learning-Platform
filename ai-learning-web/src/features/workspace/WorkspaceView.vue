@@ -25,6 +25,7 @@ import { useDuration } from '@/composables/useDuration'
 import { useAuthStore } from '@/stores/auth'
 import { useSubjectsStore } from '@/stores/subjects'
 import { accentColor, subjectAccentOf, subjectIconOf } from '@/features/subjects/types'
+import { parseIsoDate } from '@/utils/date'
 import TaskFormDialog from '@/features/tasks/components/TaskFormDialog.vue'
 import SessionFormDialog from '@/features/calendar/components/SessionFormDialog.vue'
 
@@ -111,12 +112,6 @@ const goalPercent = computed(() => {
 
 // --- Knowledge Growth mini-chart (7 real days from the aggregate) ----------------
 
-/** ISO `yyyy-MM-dd` is a calendar bucket — parse as a local date, never via Date(string). */
-function chartDate(iso: string): Date {
-  const [year, month, day] = iso.split('-').map(Number)
-  return new Date(year!, month! - 1, day!)
-}
-
 const weekBars = computed(() => {
   const days = summary.value?.weekActivity ?? []
   const max = days.reduce((m, day) => Math.max(m, day.minutes), 0)
@@ -142,7 +137,7 @@ const weekdayFormat = computed(
 )
 
 function barTooltip(bar: { date: string; minutes: number }): string {
-  return `${d(chartDate(bar.date), 'short')} · ${formatMinutes(bar.minutes)}`
+  return `${d(parseIsoDate(bar.date), 'short')} · ${formatMinutes(bar.minutes)}`
 }
 
 // --- Subject enrichment (store cache, same pattern as the calendar) ---------------
@@ -565,7 +560,7 @@ const suggestions = computed<Nudge[]>(() => {
                 </div>
                 <div class="chart-days">
                   <span v-for="bar in weekBars" :key="bar.date" class="chart-day">
-                    {{ weekdayFormat.format(chartDate(bar.date)) }}
+                    {{ weekdayFormat.format(parseIsoDate(bar.date)) }}
                   </span>
                 </div>
               </div>

@@ -1,12 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { AppAvatar, AppButton, AppCard, AppPageHeader } from '@/components'
+import {
+  AppAvatar,
+  AppButton,
+  AppCard,
+  AppDialog,
+  AppEmpty,
+  AppInput,
+  AppPageHeader,
+  AppSkeleton,
+  StatTile,
+} from '@/components'
 import { useAuthStore } from '@/stores/auth'
+import { useAsync } from '@/composables/useAsync'
 import { useDuration } from '@/composables/useDuration'
-import { mockSubjects } from '@/features/subjects/mock'
-import { mockNotes } from '@/features/notes/mock'
-import { dashboardStats } from '@/features/workspace/mock'
+import { toApiError } from '@/api/types'
+import { getAnalyticsSummary } from '@/api/modules/analytics'
+import { listSubjects } from '@/api/modules/subject'
+import { listNotes } from '@/api/modules/note'
 
 const { t, d } = useI18n()
 const authStore = useAuthStore()
@@ -16,12 +28,53 @@ const displayName = computed(
   () => authStore.user?.nickname || authStore.user?.username || '',
 )
 
-const totalStudyMinutes = computed(() =>
-  mockSubjects.reduce((sum, s) => sum + s.studyMinutes, 0),
-)
+// Learning overview — analytics summary (week study + streak) plus owned
+// subject/note counts. There is deliberately no "total study time": the
+// backend exposes windowed analytics only, and a subject-linked sum would
+// silently drop unlinked sessions (honest data over fake polish).
+const { data: overview, loading, error, reload } = useAsync(async () => {
+  const [summary, subjects, notes] = await Promise.all([
+    getAnalyticsSummary(),
+    listSubjects(),
+    listNotes(),
+  ])
+  return { summary, subjectCount: subjects.length, noteCount: notes.length }
+})
 
-// Demo-only: real accounts don't expose a creation date to the client yet.
-const memberSince = Date.now() - 96 * 86_400_000
+const showSkeleton = computed(() => loading.value && overview.value === null)
+
+// --- Edit profile (nickname / avatar URL) -----------------------------------
+
+const editOpen = ref(false)
+const editNickname = ref('')
+const editAvatar = ref('')
+const saving = ref(false)
+const saveErrorKey = ref<string | null>(null)
+
+function openEdit() {
+  editNickname.value = authStore.user?.nickname ?? ''
+  editAvatar.value = authStore.user?.avatar ?? ''
+  saveErrorKey.value = null
+  editOpen.value = true
+}
+
+async function saveProfile() {
+  if (saving.value) return
+  saving.value = true
+  saveErrorKey.value = null
+  try {
+    // Blank (`''`) intentionally clears the field back to null (wire convention).
+    await authStore.updateProfile({
+      nickname: editNickname.value.trim(),
+      avatar: editAvatar.value.trim(),
+    })
+    editOpen.value = false
+  } catch (caught) {
+    saveErrorKey.value = toApiError(caught).messageKey
+  } finally {
+    saving.value = false
+  }
+}
 </script>
 
 <template>
@@ -32,32 +85,36 @@ const memberSince = Date.now() - 96 * 86_400_000
       <AppAvatar :src="authStore.user?.avatar ?? undefined" :name="displayName" size="lg" />
       <div class="identity-main">
         <h2 class="identity-name">{{ displayName }}</h2>
-        <span class="identity-since">{{ t('profile.memberSince', { date: d(memberSince, 'monthYear') }) }}</span>
+        <span v-if="authStore.user" class="identity-since">
+          {{ t('profile.memberSince', { date: d(authStore.user.createdAt, 'monthYear') }) }}
+        </span>
       </div>
-      <AppButton variant="soft" size="sm" icon-left="pencil" disabled>
+      <AppButton variant="soft" size="sm" icon-left="pencil" @click="openEdit">
         {{ t('profile.account.edit') }}
       </AppButton>
     </AppCard>
 
     <section class="section">
       <h2 class="section-title">{{ t('profile.learningOverview') }}</h2>
-      <div class="stat-row">
-        <AppCard variant="flat" class="stat-tile">
-          <span class="stat-value">{{ formatMinutes(totalStudyMinutes) }}</span>
-          <span class="stat-label">{{ t('profile.totalStudy') }}</span>
-        </AppCard>
-        <AppCard variant="flat" class="stat-tile">
-          <span class="stat-value">{{ mockSubjects.length }}</span>
-          <span class="stat-label">{{ t('profile.subjectsCount') }}</span>
-        </AppCard>
-        <AppCard variant="flat" class="stat-tile">
-          <span class="stat-value">{{ mockNotes.length }}</span>
-          <span class="stat-label">{{ t('profile.notesCount') }}</span>
-        </AppCard>
-        <AppCard variant="flat" class="stat-tile">
-          <span class="stat-value">{{ dashboardStats.streakDays }}</span>
-          <span class="stat-label">{{ t('profile.streak') }}</span>
-        </AppCard>
+      <div v-if="showSkeleton" class="stat-row" aria-hidden="true">
+        <AppSkeleton v-for="n in 4" :key="n" variant="block" height="88px" />
+      </div>
+      <AppEmpty v-else-if="error" icon="alert-circle" :title="t(error.messageKey)">
+        <template #action>
+          <AppButton size="sm" variant="soft" @click="reload">{{ t('common.retry') }}</AppButton>
+        </template>
+      </AppEmpty>
+      <div v-else-if="overview" class="stat-row">
+        <StatTile
+          :label="t('profile.weekStudy')"
+          :value="formatMinutes(overview.summary.weekMinutes)"
+        />
+        <StatTile :label="t('profile.subjectsCount')" :value="String(overview.subjectCount)" />
+        <StatTile :label="t('profile.notesCount')" :value="String(overview.noteCount)" />
+        <StatTile
+          :label="t('profile.streak')"
+          :value="t('profile.streakUnit', { n: overview.summary.streakDays })"
+        />
       </div>
     </section>
 
@@ -80,6 +137,28 @@ const memberSince = Date.now() - 96 * 86_400_000
         </dl>
       </AppCard>
     </section>
+
+    <AppDialog v-model="editOpen" :title="t('profile.editDialog.title')" width="440px">
+      <form class="edit-form" @submit.prevent="saveProfile">
+        <AppInput
+          v-model="editNickname"
+          :label="t('profile.editDialog.nickname')"
+          :placeholder="t('profile.editDialog.nicknamePlaceholder')"
+        />
+        <AppInput
+          v-model="editAvatar"
+          :label="t('profile.editDialog.avatar')"
+          :placeholder="t('profile.editDialog.avatarPlaceholder')"
+        />
+        <p v-if="saveErrorKey" class="edit-error">{{ t(saveErrorKey) }}</p>
+      </form>
+      <template #footer>
+        <AppButton variant="soft" tone="secondary" @click="editOpen = false">
+          {{ t('common.cancel') }}
+        </AppButton>
+        <AppButton :loading="saving" @click="saveProfile">{{ t('common.save') }}</AppButton>
+      </template>
+    </AppDialog>
   </div>
 </template>
 
@@ -91,9 +170,6 @@ const memberSince = Date.now() - 96 * 86_400_000
 }
 
 .identity {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
   margin-bottom: var(--space-8);
 }
 
@@ -141,23 +217,6 @@ const memberSince = Date.now() - 96 * 86_400_000
   gap: var(--space-4);
 }
 
-.stat-tile :deep(.card-body) {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.stat-value {
-  font-size: var(--text-lg);
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-}
-
-.stat-label {
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-}
-
 .detail-list {
   margin: 0;
 }
@@ -182,6 +241,18 @@ const memberSince = Date.now() - 96 * 86_400_000
   margin: 0;
   font-size: var(--text-sm);
   color: var(--color-text);
+}
+
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.edit-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
 }
 
 @media (max-width: 640px) {

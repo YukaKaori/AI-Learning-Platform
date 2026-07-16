@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import * as authApi from '@/api/modules/auth'
-import type { AuthUser, LoginPayload } from '@/api/modules/auth'
+import type { AuthUser, LoginPayload, UpdateProfilePayload } from '@/api/modules/auth'
 import { tokenStorage } from '@/api/token-storage'
 
 /**
@@ -43,6 +43,14 @@ export const useAuthStore = defineStore('auth', {
       } finally {
         this.reset()
       }
+    },
+
+    /**
+     * Updates nickname/avatar; the store adopts the server echo so every
+     * consumer (layout avatar, workspace greeting, profile) stays in sync.
+     */
+    async updateProfile(payload: UpdateProfilePayload) {
+      this.user = await authApi.updateProfile(payload)
     },
 
     /**
