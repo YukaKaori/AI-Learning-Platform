@@ -1,3 +1,4 @@
+import { watch } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import { i18n } from '@/locales'
 import AppLayout from '@/layouts/AppLayout.vue'
@@ -123,10 +124,17 @@ const router = createRouter({
 
 installAuthGuards(router)
 
-router.afterEach((to) => {
-  const titleKey = to.meta.titleKey as string | undefined
+function applyDocumentTitle(): void {
+  const titleKey = router.currentRoute.value.meta.titleKey as string | undefined
   const appName = i18n.global.t('app.name')
   document.title = titleKey ? `${i18n.global.t(titleKey)} · ${appName}` : appName
-})
+}
+
+router.afterEach(applyDocumentTitle)
+
+// Settings' locale switch changes i18n.global.locale without a navigation,
+// so router.afterEach alone leaves a stale-language tab title until the
+// next route change — keep it in sync immediately.
+watch(i18n.global.locale, applyDocumentTitle)
 
 export default router
