@@ -116,7 +116,7 @@ const footerEntries: NavEntry[] = [
             class="control-chip"
             :class="{ active: appStore.themeMode === mode }"
             type="button"
-            @click="appStore.setThemeMode(mode)"
+            @click="appStore.updatePreferences({ theme: mode }).catch(() => {})"
           >
             {{ t(`common.theme.${mode}`) }}
           </button>
@@ -128,7 +128,7 @@ const footerEntries: NavEntry[] = [
             class="control-chip"
             :class="{ active: appStore.locale === loc }"
             type="button"
-            @click="appStore.setLocale(loc)"
+            @click="appStore.updatePreferences({ locale: loc }).catch(() => {})"
           >
             {{ localeLabels[loc] }}
           </button>
@@ -236,6 +236,7 @@ const footerEntries: NavEntry[] = [
   background-color: var(--color-primary-soft);
   color: var(--color-primary);
   font-weight: 500;
+  box-shadow: var(--shadow-glow-primary);
 }
 
 .sidebar-footer {

@@ -106,6 +106,8 @@ defineEmits<{ click: [MouseEvent] }>()
 .variant-solid.tone-primary {
   background-color: var(--color-primary);
   color: white;
+  /* Interactive-emphasis halo — real value in dark mode only (light's token is zero-alpha). */
+  box-shadow: var(--shadow-glow-primary);
 }
 .variant-solid.tone-primary:hover:not(:disabled) {
   background-color: var(--color-primary-hover);

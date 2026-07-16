@@ -56,7 +56,7 @@ html.dark {
 .el-dialog,
 .el-drawer {
   border-radius: var(--radius-dialog);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-glass), inset 0 1px 0 var(--glass-highlight);
   background-color: var(--glass-bg);
   border: 1px solid var(--glass-border);
   backdrop-filter: blur(var(--glass-blur));

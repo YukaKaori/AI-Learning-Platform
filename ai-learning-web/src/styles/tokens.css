@@ -153,6 +153,13 @@
   --glass-blur: 20px;
   --glass-highlight: rgba(255, 255, 255, 0.55);
 
+  /* Interactive-emphasis glow — a very-low-alpha halo reserved for the
+     handful of elements that ARE the emphasis (primary CTA, active nav item,
+     a focused/hovered interactive card). Never applied ambiently. Light mode
+     keeps this a real (zero-alpha) shadow value, not the `none` keyword, so
+     component CSS can always list it alongside a base shadow. */
+  --shadow-glow-primary: 0 0 0 0 rgba(94, 106, 210, 0);
+
   /* Scene — the signature authentication/welcome experience (flower wallpaper
      under a full-screen frosted veil pierced by the pointer spotlight) */
   --scene-veil-bg: rgba(252, 250, 249, 0.4);
@@ -195,6 +202,13 @@
 }
 
 html.dark {
+  /* Black+purple luxury identity — a low-saturation indigo-violet hue (~248°)
+     carried through every neutral step (bg → surface → hover → border),
+     instead of a flat gray-black. Re-validated 2026-07 (step 12): all
+     text/border contrast ratios meet or beat the previous gray-black ramp
+     (see the handoff's verification section for the exact figures), and the
+     categorical accent set below still passes the dataviz six-checks
+     validator against the new surface. */
   --color-primary: #7b86e8;
   --color-primary-hover: #8b95ee;
   --color-primary-active: #6a76dd;
@@ -205,18 +219,18 @@ html.dark {
   --color-secondary-active: #8a8a92;
   --color-secondary-soft: rgba(161, 161, 170, 0.12);
 
-  --color-bg: #101012;
-  --color-surface: #17171a;
-  --color-surface-hover: #202024;
-  --color-border: #26262b;
-  --color-border-strong: #333339;
-  --color-muted: #63636b;
-  --color-muted-soft: #202024;
-  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-bg: #0a0910;
+  --color-surface: #12101a;
+  --color-surface-hover: #191823;
+  --color-border: #262433;
+  --color-border-strong: #343243;
+  --color-muted: #6e6b80;
+  --color-muted-soft: #191823;
+  --color-overlay: rgba(8, 7, 14, 0.66);
 
   --color-text: #f4f4f5;
-  --color-text-secondary: #a1a1aa;
-  --color-text-tertiary: #63636b;
+  --color-text-secondary: #a8a6b4;
+  --color-text-tertiary: #6e6b80;
 
   --color-success: #4ade80;
   --color-success-soft: rgba(74, 222, 128, 0.14);
@@ -241,10 +255,16 @@ html.dark {
   --shadow-float: 0 12px 32px rgba(0, 0, 0, 0.55), 0 4px 10px rgba(0, 0, 0, 0.35);
   --shadow-glass: 0 16px 48px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
 
-  --glass-bg: rgba(23, 23, 26, 0.72);
-  --glass-border: rgba(255, 255, 255, 0.08);
-  --glass-blur: 20px;
-  --glass-highlight: rgba(255, 255, 255, 0.14);
+  /* Reserved for the primary CTA / active nav item / focused interactive
+     card — see the :root definition for the "why". */
+  --shadow-glow-primary: 0 0 0 1px rgba(124, 134, 234, 0.35), 0 8px 24px rgba(124, 134, 234, 0.22);
+
+  /* More translucent + more blur than light ("liquid glass"); the border and
+     top highlight carry a violet tint instead of plain white. */
+  --glass-bg: rgba(18, 16, 26, 0.64);
+  --glass-border: rgba(150, 140, 235, 0.18);
+  --glass-blur: 28px;
+  --glass-highlight: rgba(180, 172, 255, 0.18);
 
   --scene-veil-bg: rgba(14, 12, 14, 0.52);
   --scene-veil-blur: 26px;

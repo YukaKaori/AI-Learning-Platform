@@ -51,7 +51,8 @@ withDefaults(
 .variant-glass {
   border: 1px solid var(--glass-border);
   background-color: var(--glass-bg);
-  box-shadow: var(--shadow-glass);
+  /* Physical top edge for the glass sheet, same trick as the welcome scene's veil. */
+  box-shadow: var(--shadow-glass), inset 0 1px 0 var(--glass-highlight);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
 }
@@ -59,8 +60,9 @@ withDefaults(
 .interactive {
   cursor: pointer;
 }
-.interactive:hover {
-  box-shadow: var(--shadow-lg);
+.interactive:hover,
+.interactive:focus-visible {
+  box-shadow: var(--shadow-lg), var(--shadow-glow-primary);
   transform: translateY(-1px);
 }
 
