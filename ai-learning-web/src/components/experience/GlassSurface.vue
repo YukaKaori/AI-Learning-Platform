@@ -9,6 +9,24 @@ import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
  * Browsers that can't apply SVG filters as backdrop-filters (Safari, Firefox)
  * fall back to a plain frosted-glass look.
  *
+ * The surface is a *living* optical object: on top of the refraction it
+ * carries three CSS-driven lighting layers (inner glow, edge glow, and a
+ * light-tracking sheen) steered entirely by custom properties, so a stage
+ * composable (useGlassSpotlight) — or any future page — can bring it near a
+ * light source without touching this component:
+ *
+ *   --glass-inner-glow      base opacity of the permanent inner glow
+ *   --glass-edge-glow       base opacity of the permanent edge highlight
+ *   --glass-proximity       0..1 nearby-light factor: lifts both glows and
+ *                           thins the frost (background clarity)
+ *   --glass-light-x/y       card-local light position (px) for the sheen
+ *   --glass-light-radius    light radius (px)
+ *   --glass-light-strength  0..1 presence of the travelling light
+ *
+ * All lighting reacts through gradient/opacity only — the SVG displacement
+ * chain is never regenerated per frame. With no variables set, the defaults
+ * yield a calm, permanently lit surface.
+ *
  * `class`/`style` from the caller fall through to the root element.
  */
 type Channel = 'R' | 'G' | 'B'
@@ -141,6 +159,10 @@ onMounted(() => {
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
 })
+
+// Stage composables (useGlassSpotlight) need the root element to measure
+// proximity and write card-local lighting variables.
+defineExpose({ element: containerRef })
 </script>
 
 <template>
@@ -231,6 +253,8 @@ onBeforeUnmount(() => {
       </defs>
     </svg>
 
+    <div class="glass-surface__light" aria-hidden="true"></div>
+
     <div class="glass-surface__content">
       <slot />
     </div>
@@ -245,6 +269,72 @@ onBeforeUnmount(() => {
   justify-content: center;
   overflow: hidden;
   transition: opacity 0.26s ease-out;
+}
+
+/*
+ * Optical lighting — three layers driven purely by CSS custom properties
+ * (see the script docblock for the contract). No transitions here: when a
+ * spotlight composable steers the variables it interpolates per frame
+ * already, and a transition would fight it. Discrete consumers can wrap the
+ * variables themselves.
+ *
+ * Inner glow — the sheet permanently gathers light: a soft top light and a
+ * faint answering bloom from below. Proximity breathes more light into it.
+ */
+.glass-surface::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      140% 90% at 50% -14%,
+      light-dark(rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.11)),
+      transparent 58%
+    ),
+    radial-gradient(
+      130% 110% at 50% 120%,
+      light-dark(rgba(255, 255, 255, 0.09), rgba(168, 158, 255, 0.07)),
+      transparent 60%
+    );
+  opacity: calc(var(--glass-inner-glow, 0.55) + var(--glass-proximity, 0) * 0.3);
+}
+
+/* Edge glow — the physical rim of the sheet catching light. Nearby light
+   makes the bevel read brighter, like tilting real glass toward a lamp. */
+.glass-surface::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  box-shadow:
+    inset 0 0 0 1px light-dark(rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.2)),
+    inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.5), rgba(216, 210, 255, 0.32)),
+    inset 0 0 22px -8px light-dark(rgba(255, 255, 255, 0.5), rgba(190, 182, 255, 0.34));
+  opacity: calc(var(--glass-edge-glow, 0.5) + var(--glass-proximity, 0) * 0.4);
+}
+
+/* Light-tracking sheen — a whisper of the travelling light glancing across
+   the glass face. Dormant (opacity 0) until a composable feeds strength. */
+.glass-surface__light {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(
+    circle calc(var(--glass-light-radius, 360px) * 1.1) at var(--glass-light-x, 50%)
+      var(--glass-light-y, 50%),
+    light-dark(rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.1)) 0%,
+    light-dark(rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.04)) 38%,
+    transparent 72%
+  );
+  opacity: calc(var(--glass-light-strength, 0) * (0.2 + var(--glass-proximity, 0) * 0.8));
+  will-change: opacity;
 }
 
 .glass-surface__filter {
@@ -269,8 +359,14 @@ onBeforeUnmount(() => {
   z-index: 1;
 }
 
+/* Nearby light thins the frost slightly (background clarity rises); the
+   factor is deliberately small — felt, not seen — and capped where on-glass
+   text still clears the brightest petals behind it. */
 .glass-surface--svg {
-  background: light-dark(hsl(0 0% 100% / var(--glass-frost, 0)), hsl(0 0% 0% / var(--glass-frost, 0)));
+  background: light-dark(
+    hsl(0 0% 100% / calc(var(--glass-frost, 0) * (1 - var(--glass-proximity, 0) * 0.1))),
+    hsl(0 0% 0% / calc(var(--glass-frost, 0) * (1 - var(--glass-proximity, 0) * 0.1)))
+  );
   backdrop-filter: var(--filter-id) saturate(var(--glass-saturation, 1));
   box-shadow:
     0 0 2px 1px light-dark(color-mix(in oklch, black, transparent 85%), color-mix(in oklch, white, transparent 65%))

@@ -5,13 +5,16 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore, type ThemeMode } from '@/stores/app'
+import { useGlassSpotlight } from '@/composables/useGlassSpotlight'
 import { AppButton, AppInput, GlassSurface } from '@/components'
 import type { IconName } from '@/components'
 import lotusUrl from '@/assets/login/pinklotus.png'
 
-// The opening scene of the product: a pink lotus breathing on a black
-// cinematic stage, with the sign-in form floating on a sheet of real
-// refractive glass (GlassSurface) in front of it.
+// The opening scene of the product: a pink lotus asleep in near-darkness on
+// a cinematic stage. The sign-in glass (GlassSurface) permanently gathers
+// light and reveals the bloom behind it; the pointer carries a second, soft
+// light through the dark. All interaction logic lives in useGlassSpotlight —
+// this view only provides the stage and the card.
 
 const { t } = useI18n()
 const route = useRoute()
@@ -41,6 +44,14 @@ const AUTH_ERROR_KEYS: Record<number, string> = {
 // needs a denser white frost for text contrast; dark mode stays smokier so
 // the lotus glows through.
 const glassFrost = computed(() => (appStore.isDark ? 0.44 : 0.66))
+
+// Optical lighting: the composable eases the pointer light and writes CSS
+// variables on the stage (shroud mask + travelling glow) and on the card
+// (proximity-reactive glass). Inert on touch / reduced motion.
+const stageRef = ref<HTMLElement | null>(null)
+const cardRef = ref<InstanceType<typeof GlassSurface> | null>(null)
+const cardEl = computed(() => cardRef.value?.element ?? null)
+useGlassSpotlight(stageRef, { card: cardEl })
 
 onMounted(() => {
   const remembered = localStorage.getItem(REMEMBERED_USER_KEY)
@@ -106,7 +117,7 @@ function toggleLocale() {
 </script>
 
 <template>
-  <main class="login-stage">
+  <main ref="stageRef" class="login-stage">
     <img
       class="stage-lotus"
       :src="lotusUrl"
@@ -116,8 +127,11 @@ function toggleLocale() {
       fetchpriority="high"
     />
     <div class="stage-vignette" aria-hidden="true"></div>
+    <div class="stage-shroud" aria-hidden="true"></div>
+    <div class="stage-glow" aria-hidden="true"></div>
 
     <GlassSurface
+      ref="cardRef"
       class="login-card"
       width="100%"
       height="auto"
@@ -255,6 +269,98 @@ function toggleLocale() {
   background:
     radial-gradient(42% 36% at 50% 42%, var(--scene-aura), transparent 70%),
     radial-gradient(120% 100% at 50% 42%, transparent 38%, rgba(0, 0, 0, 0.45) 74%, rgba(0, 0, 0, 0.78) 100%);
+}
+
+/*
+ * Darkness shroud — the stage sleeps almost black; the lotus is hidden
+ * inside it. Two feathered holes are cut into the layer (multiple mask
+ * layers with `mask-composite: intersect` multiply their alphas, so
+ * transparency from EITHER layer opens the shroud):
+ *
+ *  1. a permanent pool of light behind the centered card — the glass always
+ *     reveals the bloom and always reads brighter than the stage;
+ *  2. the travelling light: its aperture is radius × strength, so it blooms
+ *     open softly from zero (useGlassSpotlight eases both) and stays shut
+ *     for touch / reduced-motion users.
+ *
+ * Every ramp is long and low-contrast — light spreading through dark air,
+ * not a spotlight edge.
+ */
+.stage-shroud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(0, 0, 0, 0.84);
+  mask-image:
+    radial-gradient(
+      54% 62% at 50% 50%,
+      transparent 0%,
+      rgba(0, 0, 0, 0.16) 42%,
+      rgba(0, 0, 0, 0.5) 64%,
+      rgba(0, 0, 0, 0.85) 84%,
+      #000 100%
+    ),
+    radial-gradient(
+      circle calc(var(--glass-light-radius, 360px) * var(--glass-light-strength, 0) * 1.9) at
+        var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      rgba(0, 0, 0, 0.12) 0%,
+      rgba(0, 0, 0, 0.3) 28%,
+      rgba(0, 0, 0, 0.58) 52%,
+      rgba(0, 0, 0, 0.84) 74%,
+      #000 100%
+    );
+  mask-composite: intersect;
+  transform: translateZ(0);
+}
+
+/* Without mask-composite the two layers would occlude each other's holes —
+   keep only the permanent pool there. */
+@supports not (mask-composite: intersect) {
+  .stage-shroud {
+    mask-image: radial-gradient(
+      54% 62% at 50% 50%,
+      transparent 0%,
+      rgba(0, 0, 0, 0.16) 42%,
+      rgba(0, 0, 0, 0.5) 64%,
+      rgba(0, 0, 0, 0.85) 84%,
+      #000 100%
+    );
+  }
+}
+
+/*
+ * Travelling glow — the light itself, as opposed to what it uncovers.
+ * Three overlapping radial falloffs (tight core, wide body, very long
+ * violet tail) screen-blended over the artwork so brightness accumulates
+ * optically instead of painting a disc. Alphas are whisper-low; the edges
+ * are effectively invisible.
+ */
+.stage-glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background:
+    radial-gradient(
+      circle calc(var(--glass-light-radius, 360px) * 0.5) at var(--glass-light-x, 50%)
+        var(--glass-light-y, 50%),
+      rgba(255, 216, 226, 0.13),
+      transparent 70%
+    ),
+    radial-gradient(
+      circle calc(var(--glass-light-radius, 360px) * 1.1) at var(--glass-light-x, 50%)
+        var(--glass-light-y, 50%),
+      rgba(255, 194, 210, 0.08),
+      transparent 74%
+    ),
+    radial-gradient(
+      circle calc(var(--glass-light-radius, 360px) * 2.2) at var(--glass-light-x, 50%)
+        var(--glass-light-y, 50%),
+      rgba(212, 176, 255, 0.05),
+      transparent 82%
+    );
+  opacity: var(--glass-light-strength, 0);
+  transform: translateZ(0);
 }
 
 /*

@@ -152,6 +152,9 @@
   --glass-border: rgba(255, 255, 255, 0.5);
   --glass-blur: 20px;
   --glass-highlight: rgba(255, 255, 255, 0.55);
+  /* Base radius of the travelling glass light (useGlassSpotlight); stages
+     may override, the composable swells it slightly near a surface. */
+  --glass-light-radius: 360px;
 
   /* Interactive-emphasis glow — a very-low-alpha halo reserved for the
      handful of elements that ARE the emphasis (primary CTA, active nav item,

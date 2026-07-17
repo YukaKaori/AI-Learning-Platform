@@ -1,9 +1,9 @@
 # Phase 8 Handoff — Premium Glass Experience
 
-**Status: Step 1 of Phase 8 is COMPLETE** as of 2026-07-17. This document is
-the resume point for **Step 2** in a new session. Phase 8's scope beyond
-step 1 has not been planned yet — wait for explicit confirmation before
-starting anything new.
+**Status: Steps 1 and 2 of Phase 8 are COMPLETE** as of 2026-07-17. This
+document is the resume point for **Step 3** in a new session. Phase 8's scope
+beyond step 2 has not been planned yet — wait for explicit confirmation
+before starting anything new.
 
 Phase 8 is PURE UI / Design System work. Hard constraints carried through
 every step: no Phase 7 business-logic changes, no backend changes, no
@@ -130,9 +130,110 @@ theme/locale footer controls). Presentation rebuilt:
   is at DS-hierarchy contrast, not AAA. Raising frost past ~0.7 would fix it
   at the cost of the glass reading as paint — revisit only if flagged.
 - WelcomeView still uses GlassScene + the old flower wallpaper. Visual
-  continuity login → welcome is now broken on purpose (step 1 scope was
-  login only); Step 2 should decide whether the welcome experience adopts
-  the lotus language.
+  continuity login → welcome is now broken on purpose (steps 1–2 scoped to
+  login/the primitive only); a later step should decide whether the welcome
+  experience adopts the lotus language.
+
+## What Step 2 delivered — GlassSurface Pro (Interactive Optical Lighting)
+
+Step 2 turned GlassSurface from a static optical surface into a **living**
+one, still pure Vue + CSS + SVG (no Three.js / WebGL / FluidGlass — that was
+evaluated and rejected, see the memory note). Three pieces:
+
+### 1. `src/composables/useGlassSpotlight.ts` — the lighting engine
+
+Same engineering contract as `useSpotlight` (its GlassScene sibling): pointer
+events only move goalposts; a requestAnimationFrame loop eases everything and
+writes **CSS custom properties only** — no Vue re-renders, no layout reads in
+the hot path (rects are cached, re-measured at most once/frame and only when
+a resize/scroll/RO callback marked them dirty; one ResizeObserver total).
+The loop self-stops when all values settle. Exposes `active`, `cursor`,
+`smoothedCursor`, `intensity`, `radius`, `proximity`, `brightness` as refs
+for logic/tests — **do not bind them in templates** (they update per frame).
+
+Written variables: on the **stage** — `--glass-light-x/y` (stage-local px),
+`--glass-light-radius`, `--glass-light-strength` (0..1, intensity shaped by
+proximity). On the **card** (options.card, a GlassSurface root via its new
+`defineExpose({ element })`) — the same four in card-local coordinates plus
+`--glass-proximity` (0..1, distance of the light to the card edge over an
+influence range). Gated off (strength pinned to 0) for coarse pointers and
+`prefers-reduced-motion`; the media queries are watched live.
+
+### 2. GlassSurface — consumes CSS variables, never regenerates the filter
+
+Additive only (the SVG displacement chain from step 1 is untouched and still
+never recalculates per frame). New always-on lighting layers, all driven by
+custom properties with calm defaults so every existing/future usage gets
+permanent illumination with zero JS:
+
+- `::before` **inner glow** — top light + faint answering bloom from below;
+  opacity `calc(var(--glass-inner-glow, .55) + var(--glass-proximity, 0) * .3)`.
+- `::after` **edge glow** — 1px rim + top bevel + inner halo box-shadows;
+  opacity `calc(var(--glass-edge-glow, .5) + var(--glass-proximity, 0) * .4)`.
+- `.glass-surface__light` **light-tracking sheen** — a radial highlight at
+  `--glass-light-x/y` (card-local), dormant until strength × proximity > 0.
+- **Frost thins near light** (background clarity rises): the `--glass-frost`
+  alpha is multiplied by `(1 - proximity * 0.1)`. The factor was 0.16 first;
+  dark-theme subtitle legibility under a bright petal pulled it back to 0.1
+  (screenshot-verified). Deliberately no CSS transitions on these layers —
+  the composable already interpolates per frame and a transition would fight
+  it.
+- No lighting layer touches `backdrop-filter`; refraction cost is unchanged.
+
+New token: `--glass-light-radius: 360px` in tokens.css (the composable reads
+it as its base radius fallback; stages may override).
+
+### 3. LoginView — the sleeping stage
+
+Script logic unchanged; the view only provides the stage and the card
+(`useGlassSpotlight(stageRef, { card })` — interaction logic lives entirely
+in the composable). Two new decorative layers:
+
+- `.stage-shroud` — `rgba(0,0,0,.84)` over the (still breathing) lotus, so
+  the stage sleeps almost black. Two feathered holes are cut with two
+  mask-image layers + `mask-composite: intersect` (alphas multiply, so
+  transparency from either layer opens the shroud): a **permanent pool**
+  behind the centered card (the glass always reveals the bloom and always
+  reads brighter than the stage — mouse enhances, never replaces), and the
+  **travelling light**, whose aperture is `radius × strength` so it blooms
+  from zero and stays shut for touch/reduced-motion users. A
+  `@supports not (mask-composite: intersect)` guard keeps just the permanent
+  pool where compositing is unavailable.
+- `.stage-glow` — the light itself: three overlapping screen-blended radial
+  falloffs (tight rose core ×0.5, wide body ×1.1, long violet tail ×2.2)
+  with whisper-low alphas — accumulation, not a painted disc.
+
+### Step 2 verification record (2026-07-17)
+
+- `vue-tsc --build` ✓, `npm run lint` ✓, `npm run build` ✓,
+  `npm run test:unit` (8/8) ✓.
+- Playwright/Chromium sweep, dark + light × desktop (1440×900) / tablet
+  (834×1112) / mobile (390×844): idle (permanent illumination), light-far,
+  light-near states screenshot-reviewed; zero page errors. Driven variables
+  dumped and sane (proximity ≈1 over the card, eases with distance).
+- `reducedMotion: 'reduce'`: strength stays `0` after pointer movement;
+  permanent pool + GlassSurface default glows remain ✓.
+- Real touch emulation (`isMobile + hasTouch`): the fine-hover gate is false,
+  light never ignites ✓. (Plain small-viewport emulation still reports a fine
+  pointer — that 0.98 strength reading is an emulator artifact, not a bug.)
+- Not verified: Safari/Firefox (no local install) — they take the fallback
+  skin + the new CSS layers; `mask-composite: intersect` is supported by
+  both current engines, and the @supports guard covers the rest.
+
+### Step 2 watch items
+
+- The travelling light repaints the shroud/glow gradient layers each frame
+  (compositor-promoted via `translateZ(0)`); fine on desktop Chromium. If a
+  future stage stacks more masked layers, profile before adding a fourth.
+- The permanent pool is sized in stage-relative percentages
+  (`54% × 62% at 50% 50%`) and assumes a centered card — true for login. A
+  future page with an off-center GlassSurface should either re-position the
+  pool or drive it from the card rect.
+- GlassSurface's lighting defaults (`--glass-inner-glow: .55`,
+  `--glass-edge-glow: .5`) now apply to *every* GlassSurface. On the login
+  card they read correctly; when Workspace/Dashboard/AI-Tutor/dialogs adopt
+  the primitive, tune per-surface via the two variables rather than editing
+  the component.
 
 ## Phase 8 candidates (unchanged from Phase 7 handoff)
 
