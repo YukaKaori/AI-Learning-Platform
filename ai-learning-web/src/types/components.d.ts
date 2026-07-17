@@ -38,6 +38,7 @@ declare module 'vue' {
     ElTimePicker: typeof import('element-plus/es')['ElTimePicker']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     GlassScene: typeof import('./../components/experience/GlassScene.vue')['default']
+    GlassSurface: typeof import('./../components/experience/GlassSurface.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     StatTile: typeof import('./../components/StatTile.vue')['default']

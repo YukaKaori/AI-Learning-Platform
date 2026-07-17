@@ -5,11 +5,13 @@ import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore, type ThemeMode } from '@/stores/app'
-import { AppButton, AppInput, GlassScene } from '@/components'
+import { AppButton, AppInput, GlassSurface } from '@/components'
 import type { IconName } from '@/components'
+import lotusUrl from '@/assets/login/pinklotus.png'
 
-// The opening scene of the product: the flower wallpaper behind liquid glass,
-// with the welcome experience continuing the same visual language after login.
+// The opening scene of the product: a pink lotus breathing on a black
+// cinematic stage, with the sign-in form floating on a sheet of real
+// refractive glass (GlassSurface) in front of it.
 
 const { t } = useI18n()
 const route = useRoute()
@@ -34,6 +36,11 @@ const AUTH_ERROR_KEYS: Record<number, string> = {
   100001: 'auth.error.accountLocked',
   100002: 'auth.error.accountDisabled',
 }
+
+// The stage is black in both themes, so the glass adapts instead: light mode
+// needs a denser white frost for text contrast; dark mode stays smokier so
+// the lotus glows through.
+const glassFrost = computed(() => (appStore.isDark ? 0.44 : 0.66))
 
 onMounted(() => {
   const remembered = localStorage.getItem(REMEMBERED_USER_KEY)
@@ -99,9 +106,34 @@ function toggleLocale() {
 </script>
 
 <template>
-  <GlassScene class="login-scene">
-    <main class="login-stage">
-      <section class="login-card" :aria-label="t('auth.login.title')">
+  <main class="login-stage">
+    <img
+      class="stage-lotus"
+      :src="lotusUrl"
+      alt=""
+      aria-hidden="true"
+      decoding="async"
+      fetchpriority="high"
+    />
+    <div class="stage-vignette" aria-hidden="true"></div>
+
+    <GlassSurface
+      class="login-card"
+      width="100%"
+      height="auto"
+      :border-radius="28"
+      :border-width="0.08"
+      :blur="10"
+      :opacity="0.97"
+      :displace="0.5"
+      :background-opacity="glassFrost"
+      :saturation="1.15"
+      :distortion-scale="-88"
+      :red-offset="0"
+      :green-offset="4"
+      :blue-offset="8"
+    >
+      <section class="card-body" :aria-label="t('auth.login.title')">
         <header class="login-header">
           <span class="brand-mark" aria-hidden="true"></span>
           <h1 class="login-title">{{ t('app.name') }}</h1>
@@ -139,8 +171,14 @@ function toggleLocale() {
             </AppButton>
           </div>
 
-          <p v-if="showForgotHint" class="login-hint">{{ t('auth.login.forgotPasswordHint') }}</p>
-          <p v-if="errorKey" class="login-error" role="alert">{{ t(errorKey) }}</p>
+          <Transition name="app-slide-down">
+            <p v-if="showForgotHint" class="login-hint">
+              {{ t('auth.login.forgotPasswordHint') }}
+            </p>
+          </Transition>
+          <Transition name="app-slide-down">
+            <p v-if="errorKey" class="login-error" role="alert">{{ t(errorKey) }}</p>
+          </Transition>
 
           <AppButton type="submit" size="lg" block :loading="submitting">
             {{ t('auth.login.submit') }}
@@ -170,40 +208,69 @@ function toggleLocale() {
           <span class="version">v{{ appVersion }}</span>
         </footer>
       </section>
-    </main>
-  </GlassScene>
+    </GlassSurface>
+  </main>
 </template>
 
 <style scoped>
-.login-scene {
-  min-height: 100vh;
-}
-
+/*
+ * The stage — deliberately black in BOTH themes. The lotus artwork carries
+ * its own black field, so the page extends it edge-to-edge; theme choice is
+ * expressed by the glass card, not the backdrop.
+ */
 .login-stage {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 100vh;
+  min-height: 100dvh;
   padding: var(--space-6);
+  overflow: hidden;
+  background: #000;
+  isolation: isolate;
 }
 
 /*
- * The glass card — same material vocabulary as GlassScene, one step more
- * opaque so the form always sits on a stable surface.
+ * The lotus fills the viewport (cover never stretches; the surround is pure
+ * black so crops are invisible) and is kept optically centered — the bloom
+ * sits at ~55% / 42% of the source frame. It breathes on a slow alternate
+ * loop; transform/opacity only, so it stays on the compositor.
+ */
+.stage-lotus {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 55% 42%;
+  animation: app-breathe 14s var(--ease-in-out) infinite alternate;
+}
+
+/* Rose aura around the bloom + a corner vignette to pull focus inward. */
+.stage-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(42% 36% at 50% 42%, var(--scene-aura), transparent 70%),
+    radial-gradient(120% 100% at 50% 42%, transparent 38%, rgba(0, 0, 0, 0.45) 74%, rgba(0, 0, 0, 0.78) 100%);
+}
+
+/*
+ * The glass sheet floats in front of the bloom so GlassSurface has something
+ * luminous to refract. Entrance: one soft rise, then stillness — the motion
+ * belongs to the lotus, not the card.
  */
 .login-card {
+  position: relative;
+  max-width: 520px;
+  animation: app-slide-up 640ms var(--ease-out) 60ms both;
+}
+
+.card-body {
   width: 100%;
-  max-width: 420px;
   padding: var(--space-10) var(--space-8) var(--space-6);
-  border: var(--border-width-sm) solid var(--glass-border);
-  border-radius: var(--radius-glass);
-  background-color: var(--glass-bg);
-  box-shadow:
-    var(--shadow-glass),
-    inset 0 1px 0 var(--glass-highlight);
-  backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(140%);
-  animation: app-slide-up var(--duration-slow) var(--ease-out) both;
 }
 
 .login-header {
@@ -216,20 +283,24 @@ function toggleLocale() {
 }
 
 .brand-mark {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   margin-bottom: var(--space-2);
   border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, var(--color-primary), var(--color-primary-hover));
-  box-shadow: var(--shadow-md);
+  background: linear-gradient(135deg, var(--color-primary), var(--accent-violet));
+  box-shadow:
+    var(--shadow-glow-primary),
+    var(--shadow-md),
+    inset 0 1px 0 var(--glass-highlight);
 }
 
 .login-title {
   margin: 0;
-  font-family: var(--font-title-family);
-  font-size: var(--font-title-size);
-  font-weight: var(--font-title-weight);
-  letter-spacing: var(--font-title-tracking);
+  font-family: var(--font-headline-family);
+  font-size: var(--font-headline-size);
+  font-weight: var(--font-headline-weight);
+  line-height: var(--font-headline-leading);
+  letter-spacing: var(--font-headline-tracking);
   color: var(--color-text);
 }
 
@@ -250,6 +321,23 @@ function toggleLocale() {
   align-items: center;
   justify-content: space-between;
   margin-block: calc(var(--space-1) * -1);
+}
+
+/* On glass the token border (tuned for solid surfaces) vanishes — lift the
+   unchecked box to the muted step so it stays quietly visible. */
+.login-options :deep(.el-checkbox__inner) {
+  border-color: var(--color-muted);
+  background-color: transparent;
+}
+
+/* Light mode's primary tint washes out on the mid-gray glass; the active
+   step keeps the link on-brand but legible. Dark mode's primary already
+   carries enough luminance. */
+.login-options :deep(.app-button.variant-plain) {
+  color: var(--color-primary-active);
+}
+html.dark .login-options :deep(.app-button.variant-plain) {
+  color: var(--color-primary);
 }
 
 .login-hint {
@@ -283,12 +371,12 @@ function toggleLocale() {
   color: var(--color-text-tertiary);
 }
 
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .login-stage {
     padding: var(--space-4);
   }
 
-  .login-card {
+  .card-body {
     padding: var(--space-8) var(--space-5) var(--space-5);
   }
 }

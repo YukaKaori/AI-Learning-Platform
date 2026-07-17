@@ -19,6 +19,7 @@ export { default as StatTile } from './StatTile.vue'
 
 // Experience surfaces — cinematic building blocks for signature pages.
 export { default as GlassScene } from './experience/GlassScene.vue'
+export { default as GlassSurface } from './experience/GlassSurface.vue'
 
 export type { IconName } from './icons/registry'
 export * from './types'
