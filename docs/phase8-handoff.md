@@ -1,11 +1,13 @@
 # Phase 8 Handoff — Premium Glass Experience
 
 **Status: Steps 1, 2, 3 and 5 of Phase 8 are COMPLETE** as of 2026-07-17.
-(Step numbering follows the product briefs; no brief was issued as "step 4" —
-the FluidGlass evaluation happened between 3 and 5, see the memory note.)
-This document is the resume point for the next step in a new session. Phase
-8's remaining scope has not been planned — wait for explicit confirmation
-before starting anything new.
+Step numbering follows the user's briefs: the earlier "GlassSurface
+Evolution Proposal" roadmap had step 4 = lens-profile displacement map and
+step 5 = roaming pointer lens, but neither was briefed — the user's actual
+step-5 brief redefined it as the Landing Experience Upgrade (below), and
+step 4 was skipped entirely. This document is the resume point for the next
+step in a new session. Phase 8's remaining scope has not been planned —
+wait for explicit confirmation before starting anything new.
 
 Phase 8 is PURE UI / Design System work. Hard constraints carried through
 every step: no Phase 7 business-logic changes, no backend changes, no
