@@ -10,16 +10,18 @@ import { AppButton, AppInput, GlassSurface } from '@/components'
 import type { IconName } from '@/components'
 import lotusUrl from '@/assets/login/pinklotus.png'
 
-// The opening scene of the product: a single artwork in a dark gallery.
-// The stage is pure black; the lotus hangs at its own natural size near the
-// visual centre, a hero object surrounded by negative space — never a
-// wallpaper. The sign-in glass floats in front of the flower's lower half,
-// so the sheet refracts petals and leaves instead of empty black. A darkness
-// shroud hides the artwork everywhere except two apertures: a card-shaped
-// opening under the glass (permanent) and the pointer's travelling reveal.
-// Nothing on the stage ever emits light — every change of brightness is the
-// shroud giving way, and it flows back when the pointer leaves. Interaction
-// timing lives in useGlassSpotlight; this view owns the stage composition.
+// The opening scene of the product — a landing, not a dialog. One artwork in
+// a dark gallery: the stage is pure black; the lotus hangs at its natural
+// aspect ratio as the visual hero, surrounded by negative space — never a
+// wallpaper. The sign-in glass floats over the flower's lower half so the
+// sheet refracts petals, translucent leaves and part of the core. Below it,
+// one line of product voice; near the bottom, a floating glass navigation
+// and the colophon. A darkness shroud hides the artwork everywhere except
+// two apertures: a card-shaped opening under the glass (permanent) and the
+// pointer's travelling reveal. Nothing on the stage ever emits light — every
+// change of brightness is the shroud giving way, and it flows back when the
+// pointer leaves. Interaction timing lives in useGlassSpotlight; this view
+// owns the stage composition.
 
 const { t } = useI18n()
 const route = useRoute()
@@ -47,8 +49,10 @@ const AUTH_ERROR_KEYS: Record<number, string> = {
 
 // The stage is black in both themes, so the glass adapts instead: light mode
 // needs a denser white frost for text contrast; dark mode stays smokier so
-// the lotus glows through.
+// the lotus glows through. The nav bar is the same material one step
+// thinner — a satellite of the card, never its rival.
 const glassFrost = computed(() => (appStore.isDark ? 0.44 : 0.66))
+const navFrost = computed(() => (appStore.isDark ? 0.3 : 0.56))
 
 // Optical lighting: the composable eases the pointer light and writes CSS
 // variables on the stage (shroud mask + travelling glow) and on the card
@@ -211,10 +215,24 @@ function cycleTheme() {
 }
 
 const appVersion = __APP_VERSION__
+const copyrightYear = new Date().getFullYear()
 
 function toggleLocale() {
   appStore.setLocale(appStore.locale === 'zh-CN' ? 'en-US' : 'zh-CN')
 }
+
+// Floating glass navigation — product identity, every link a real
+// destination (the public repository and its documents). "AI Native" is the
+// wordmark, not a link.
+const REPO_URL = 'https://github.com/YukaKaori/AI-Learning-Platform'
+const NAV_RADIUS = 36
+
+const navLinks = computed(() => [
+  { label: t('landing.nav.docs'), href: `${REPO_URL}/tree/main/docs` },
+  { label: t('landing.nav.features'), href: `${REPO_URL}/blob/main/docs/ai-engine.md` },
+  { label: t('landing.nav.roadmap'), href: `${REPO_URL}/blob/main/docs/architecture.md` },
+  { label: 'GitHub', href: REPO_URL },
+])
 </script>
 
 <template>
@@ -313,10 +331,43 @@ function toggleLocale() {
               {{ appStore.locale === 'zh-CN' ? 'EN' : '中文' }}
             </AppButton>
           </div>
-          <span class="version">v{{ appVersion }}</span>
         </footer>
       </section>
     </GlassSurface>
+
+    <p class="stage-tagline">{{ t('landing.tagline') }}</p>
+
+    <GlassSurface
+      class="landing-nav"
+      width="auto"
+      height="auto"
+      :border-radius="NAV_RADIUS"
+      :blur="10"
+      :opacity="0.97"
+      :displace="0.5"
+      :background-opacity="navFrost"
+      :saturation="1.1"
+      :distortion-scale="-60"
+      :red-offset="0"
+      :green-offset="3"
+      :blue-offset="6"
+    >
+      <nav class="nav-links" :aria-label="t('landing.nav.label')">
+        <span class="nav-wordmark">AI Native</span>
+        <a
+          v-for="link in navLinks"
+          :key="link.href"
+          class="nav-link"
+          :href="link.href"
+          target="_blank"
+          rel="noopener"
+        >
+          {{ link.label }}
+        </a>
+      </nav>
+    </GlassSurface>
+
+    <p class="stage-colophon">v{{ appVersion }} · © {{ copyrightYear }} {{ t('app.name') }}</p>
   </main>
 </template>
 
@@ -324,13 +375,16 @@ function toggleLocale() {
 /*
  * The stage — pure black in BOTH themes, edge to edge: no gradients, no
  * texture, no tinted overlays. All the colour on the page belongs to the
- * artwork; theme choice is expressed by the glass card, not the backdrop.
+ * artwork; theme choice is expressed by the glass surfaces, not the
+ * backdrop. The page reads top to bottom as a landing: hero artwork →
+ * glass login → product voice → floating navigation → colophon. Everything
+ * flows in a single column so short viewports scroll instead of clipping.
  */
 .login-stage {
   position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
   min-height: 100vh;
   min-height: 100dvh;
   padding: var(--space-6);
@@ -340,20 +394,21 @@ function toggleLocale() {
 }
 
 /*
- * The artwork — a hero object, not a wallpaper. The lotus hangs at its
- * native 3:2 ratio, conservatively sized (~42vw, capped) so generous black
- * negative space surrounds it, its centre a little above the viewport's:
- * the glass card, biased below centre, then overlaps the flower's lower
- * half. The wrapper owns position and a soft edge feather (the source
+ * The artwork — the hero of the stage, composed like product photography:
+ * the lotus hangs at its native 3:2 ratio, large enough to command the
+ * frame (~52vw, capped) yet still surrounded by black negative space. Its
+ * centre sits above the viewport's, so the glass card — biased below —
+ * overlaps the flower's lower half and the bloom crown rises free above
+ * the sheet. The wrapper owns position and a soft edge feather (the source
  * frame's own black field dissolves into the stage, never reading as a
  * pasted rectangle); the img inside owns the breathing, because app-breathe
  * animates transform and would clobber positional transforms.
  */
 .stage-artwork {
   position: absolute;
-  top: 36%;
+  top: 32%;
   left: 50%;
-  width: min(42vw, 640px);
+  width: min(52vw, 800px);
   transform: translate(-50%, -50%);
   pointer-events: none;
   mask-image:
@@ -388,15 +443,16 @@ function toggleLocale() {
 
 /*
  * The glass sheet floats in front of the flower's lower half so GlassSurface
- * refracts petals and leaves, not empty black. The top margin (halved by the
- * centering flex) drops the card just below the viewport centre, letting the
- * bloom crown rise above the sheet. Entrance: one soft rise, then stillness —
- * the only continuous motion on the stage is the lotus breathing.
+ * refracts petals and leaves, not empty black. The top offset drops the card
+ * below the lotus centre while the bloom crown rises above the sheet.
+ * Entrance: one soft rise, then stillness — the only continuous motion on
+ * the stage is the lotus breathing.
  */
 .login-card {
   position: relative;
+  width: 100%;
   max-width: 520px;
-  margin-top: 14vh;
+  margin-top: clamp(80px, 15vh, 180px);
   animation: app-slide-up 640ms var(--ease-out) 60ms both;
 }
 
@@ -448,6 +504,57 @@ function toggleLocale() {
   gap: var(--space-4);
 }
 
+/*
+ * On-glass control skins — the card's material language extended to every
+ * control inside it: transparency, a glass border, a top highlight, a hint
+ * of inner depth. Same optical family as GlassSurface, but lightweight —
+ * never a second backdrop-filter (one refraction pass per stage is the
+ * budget) and never a nested GlassSurface. Scoped here deliberately: the
+ * app-wide components stay tuned for solid surfaces; these skins assume a
+ * glass parent. light-dark() follows the card's frost (white in light,
+ * smoke in dark), which tokens.css enables via color-scheme.
+ */
+.login-form :deep(.app-input) {
+  background: light-dark(rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.05));
+  border-color: light-dark(rgba(24, 24, 27, 0.12), rgba(255, 255, 255, 0.13));
+  box-shadow: inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.07));
+}
+
+.login-form :deep(.app-input:focus-within) {
+  background: light-dark(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.08));
+  border-color: var(--color-primary);
+  box-shadow:
+    inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.08)),
+    0 0 0 3px var(--color-primary-soft);
+}
+
+/* The primary action is the brightest glass on the card: the brand colour
+   poured into a translucent slab — rim, top highlight, and a shaded lower
+   edge give it physical thickness. */
+.login-form :deep(.app-button.variant-solid.tone-primary) {
+  background: light-dark(
+    color-mix(in srgb, var(--color-primary) 92%, transparent),
+    color-mix(in srgb, var(--color-primary) 78%, transparent)
+  );
+  border-color: light-dark(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.22));
+  box-shadow:
+    var(--shadow-glow-primary),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32),
+    inset 0 -10px 18px -12px rgba(0, 0, 0, 0.4);
+}
+.login-form :deep(.app-button.variant-solid.tone-primary:hover:not(:disabled)) {
+  background: light-dark(
+    color-mix(in srgb, var(--color-primary-hover) 94%, transparent),
+    color-mix(in srgb, var(--color-primary-hover) 86%, transparent)
+  );
+}
+.login-form :deep(.app-button.variant-solid.tone-primary:active:not(:disabled)) {
+  background: light-dark(
+    color-mix(in srgb, var(--color-primary-active) 94%, transparent),
+    color-mix(in srgb, var(--color-primary-active) 86%, transparent)
+  );
+}
+
 .login-options {
   display: flex;
   align-items: center;
@@ -455,11 +562,23 @@ function toggleLocale() {
   margin-block: calc(var(--space-1) * -1);
 }
 
-/* On glass the token border (tuned for solid surfaces) vanishes — lift the
-   unchecked box to the muted step so it stays quietly visible. */
+/* Checkbox joins the material family: a tiny glass pane, frost fill and top
+   highlight; checked pours in translucent brand colour. (The token border,
+   tuned for solid surfaces, vanishes on glass.) */
 .login-options :deep(.el-checkbox__inner) {
-  border-color: var(--color-muted);
-  background-color: transparent;
+  border-color: light-dark(rgba(24, 24, 27, 0.3), rgba(255, 255, 255, 0.3));
+  background-color: light-dark(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.05));
+  box-shadow: inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.06));
+}
+.login-options :deep(.el-checkbox__input.is-checked .el-checkbox__inner) {
+  border-color: transparent;
+  background-color: color-mix(in srgb, var(--color-primary) 86%, transparent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+}
+
+/* Ghost controls hover with light on glass, not the solid-surface token. */
+.card-body :deep(.app-button.variant-ghost:hover:not(:disabled)) {
+  background-color: light-dark(rgba(24, 24, 27, 0.06), rgba(255, 255, 255, 0.08));
 }
 
 /* Light mode's primary tint washes out on the mid-gray glass; the active
@@ -486,8 +605,7 @@ html.dark .login-options :deep(.app-button.variant-plain) {
 
 .login-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: center;
   margin-top: var(--space-6);
   padding-top: var(--space-4);
   border-top: var(--border-width-sm) solid var(--glass-border);
@@ -498,9 +616,90 @@ html.dark .login-options :deep(.app-button.variant-plain) {
   gap: var(--space-1);
 }
 
-.version {
+/*
+ * Product voice — one quiet line under the glass. It sits directly on the
+ * black stage (not on glass), so it keeps a fixed dusk tone in both themes:
+ * theme-relative text tokens would go dark-on-dark in light mode.
+ */
+.stage-tagline {
+  position: relative;
+  /* The bottom margin is the guaranteed breathing room above the nav when
+     the column overflows and the nav's auto margin collapses to zero. */
+  margin: var(--space-6) 0 var(--space-8);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-wide);
+  color: rgba(228, 226, 240, 0.62);
+  text-align: center;
+  animation: app-slide-up 640ms var(--ease-out) 180ms both;
+}
+
+/*
+ * Floating glass navigation — a satellite of the login card, same material
+ * one step thinner, shaped as a pill and parked near the bottom of the
+ * stage (margin-top: auto claims the leftover space; on short viewports it
+ * simply follows the flow and the page scrolls). Motion is restrained to
+ * colour and a soft light pool on each item — nothing translates, nothing
+ * bounces, nothing overshoots.
+ */
+.landing-nav {
+  position: relative;
+  margin-top: auto;
+  animation: app-slide-up 640ms var(--ease-out) 300ms both;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 56px;
+  padding-inline: var(--space-5);
+}
+
+.nav-wordmark {
+  margin-right: var(--space-3);
+  padding-right: var(--space-4);
+  border-right: var(--border-width-sm) solid
+    light-dark(rgba(24, 24, 27, 0.16), rgba(255, 255, 255, 0.14));
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+/* On-glass link text uses theme tokens — the nav's frost carries the theme
+   just like the card, so token contrast holds. */
+.nav-link {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+  transition:
+    color var(--duration-base) var(--ease-out),
+    background-color var(--duration-base) var(--ease-out);
+}
+
+.nav-link:hover {
+  color: var(--color-text);
+  background-color: light-dark(rgba(24, 24, 27, 0.06), rgba(255, 255, 255, 0.08));
+}
+
+.nav-link:focus-visible {
+  outline: var(--border-width-md) solid var(--color-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Colophon — the last, quietest line on the stage (fixed dusk tone, see
+   .stage-tagline). */
+.stage-colophon {
+  position: relative;
+  margin: var(--space-3) 0 0;
   font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
+  color: rgba(228, 226, 240, 0.38);
+  text-align: center;
+  animation: app-fade-in 640ms var(--ease-out) 420ms both;
 }
 
 @media (max-width: 640px) {
@@ -508,19 +707,36 @@ html.dark .login-options :deep(.app-button.variant-plain) {
     padding: var(--space-4);
   }
 
-  /* Narrow screens: 42vw would shrink the artwork to a thumbnail — let it
+  /* Narrow screens: 52vw would shrink the artwork to a thumbnail — let it
      take most of the width while the composition stays object-in-darkness. */
   .stage-artwork {
-    top: 32%;
-    width: min(84vw, 420px);
+    top: 30%;
+    width: min(92vw, 460px);
   }
 
   .login-card {
-    margin-top: 10vh;
+    margin-top: clamp(64px, 12vh, 140px);
   }
 
   .card-body {
     padding: var(--space-8) var(--space-5) var(--space-5);
+  }
+
+  /* The card already carries the brand — the wordmark yields its width to
+     the links on narrow stages. */
+  .nav-wordmark {
+    display: none;
+  }
+
+  .nav-links {
+    gap: var(--space-1);
+    height: 48px;
+    padding-inline: var(--space-3);
+  }
+
+  .nav-link {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-xs);
   }
 }
 </style>

@@ -1,8 +1,10 @@
 # Phase 8 Handoff — Premium Glass Experience
 
-**Status: Steps 1 and 2 of Phase 8 are COMPLETE** as of 2026-07-17. This
-document is the resume point for **Step 3** in a new session. Phase 8's scope
-beyond step 2 has not been planned yet — wait for explicit confirmation
+**Status: Steps 1, 2, 3 and 5 of Phase 8 are COMPLETE** as of 2026-07-17.
+(Step numbering follows the product briefs; no brief was issued as "step 4" —
+the FluidGlass evaluation happened between 3 and 5, see the memory note.)
+This document is the resume point for the next step in a new session. Phase
+8's remaining scope has not been planned — wait for explicit confirmation
 before starting anything new.
 
 Phase 8 is PURE UI / Design System work. Hard constraints carried through
@@ -234,6 +236,136 @@ in the composable). Two new decorative layers:
   card they read correctly; when Workspace/Dashboard/AI-Tutor/dialogs adopt
   the primitive, tune per-surface via the two variables rather than editing
   the component.
+
+## What Step 3 delivered — Sleeping Dark stage (commit f22175e)
+
+The stage now sleeps almost black. A `.stage-shroud` (`rgba(0,0,0,0.95)`)
+covers the breathing lotus; two feathered apertures open it via
+`mask-composite: intersect`:
+
+- **Card aperture (permanent)** — shaped like the glass, measured from the
+  real card geometry by a dedicated ResizeObserver (NOT useGlassSpotlight,
+  which sleeps on touch/reduced-motion — the lotus must still live inside
+  the glass there). Built as an SVG data-URI mask (blurred negative rect),
+  rebuilt only when rounded geometry changes; `CARD_HOLE_REACH 16` /
+  `CARD_HOLE_FEATHER 14` hug the sheet tightly so "the lotus lives only in
+  the glass" reads, and the displacement filter refracting a little
+  feathered darkness at the rim is deliberate (smoked-glass border).
+- **Travelling reveal** — a radial gradient whose radius is
+  `radius × strength` (blooms from zero; shut for touch/reduced-motion) and
+  whose centre never fully clears — a floor of darkness keeps every revealed
+  petal dimmer than the glass. `@supports`-guarded: without mask-composite,
+  only the card aperture survives.
+
+`useGlassSpotlight` gained an asymmetric intensity envelope
+(`INTENSITY_ATTACK 0.08` / `INTENSITY_RELEASE 0.022`): light seeps in over
+~0.6 s, darkness flows back over ~2.5 s. Position easing stays symmetric.
+The step-2 `.stage-glow` layer was retired in favor of the subtractive
+reveal — nothing on the stage emits light anymore.
+
+## What Step 5 delivered — Landing Experience Upgrade (this session)
+
+Brief: evolve the login page into a premium product landing — NOT a
+redesign; everything from steps 1–3 stays. FluidGlass remained visual
+reference only (no React/Three.js/WebGL/new deps; GlassSurface is still the
+sole glass primitive). Login/auth script logic untouched.
+
+### 1. Hero artwork composition
+
+The lotus was promoted to the visual hero — composition changed, image
+never stretched (native 3:2, no `cover`, no wallpaper, stage stays `#000`):
+
+- Artwork: `min(42vw, 640px)` → **`min(52vw, 800px)`**, centre raised to
+  `top: 32%` (mobile: `min(92vw, 460px)` at 30%).
+- The page is now a single flex column (hero → glass login → tagline →
+  floating nav → colophon); short viewports scroll instead of clipping.
+- Card drops `clamp(80px, 15vh, 180px)` from the top: its centre sits below
+  the lotus centre, so the glass refracts petals/leaves/core while the
+  bloom crown rises free above the sheet. At 1440×900 everything fits in
+  one viewport with no scroll (Playwright-measured).
+
+### 2. Glass design language — on-glass control skins
+
+Every control inside the card joined the material family via **lightweight
+CSS variants scoped in LoginView** — transparency + glass border + top
+highlight + inner depth. Deliberately NO nested GlassSurface and NO second
+`backdrop-filter` (one refraction pass per stage is the budget); the
+app-wide components stay tuned for solid surfaces. All skins use
+`light-dark()` (valid because tokens.css sets `color-scheme`) so they follow
+the card's frost, and brand colours pour in via
+`color-mix(in srgb, var(--color-primary) N%, transparent)`:
+
+- **Inputs**: frost fill `0.48/0.05` (light/dark), glass border, inset top
+  highlight; focus lifts the fill and keeps the token focus ring.
+- **Primary button**: translucent brand slab (92%/78% mix), white rim
+  border, top highlight + shaded lower edge for physical thickness; hover
+  and active states re-mixed from the hover/active tokens.
+- **Checkbox**: tiny glass pane (frost fill + top highlight); checked pours
+  in 86% translucent primary.
+- **Ghost controls**: hover pools light (`light-dark` rgba) instead of the
+  solid-surface hover token.
+
+### 3. Floating glass navigation
+
+A second GlassSurface — the FluidGlass *bar's* product experience (floating
+object, optical depth, restrained motion), zero of its implementation.
+Pill (radius 36), inner nav 56px + GlassSurface padding = **72px tall**,
+parked at the stage bottom by `margin-top: auto` (flows and scrolls on
+short viewports). Params: same family as the card, one step thinner —
+frost 0.56 light / 0.30 dark, `distortionScale -60`, offsets 0/3/6.
+Contents: **AI Native** wordmark (non-link, divider after it, hidden on
+mobile — the card already carries the brand) + four real links (文档 →
+repo `/tree/main/docs`, 功能特性 → `docs/ai-engine.md`, 路线图 →
+`docs/architecture.md`, GitHub → repo), all `target="_blank" rel="noopener"`.
+Hover: colour + a soft light pool only — nothing translates, bounces or
+overshoots. On-glass link text uses theme tokens (the nav's frost carries
+the theme, so token contrast holds — same rule as the card).
+
+### 4. Landing hierarchy
+
+Hero artwork → glass login → `.stage-tagline` (one line of product voice)
+→ floating nav → `.stage-colophon` (`v{version} · © {year} {app.name}` —
+the version moved out of the card footer, which now centers just the
+theme/locale controls). Tagline and colophon sit directly on the black
+stage, so they keep a **fixed dusk tone** (`rgba(228,226,240, .62/.38)`) in
+both themes — theme-relative text tokens would go dark-on-dark in light
+mode (same reasoning as the stage's literal `#000`). New i18n section
+`landing.*` (tagline + nav labels) in both locales. Entrances are one
+staggered `app-slide-up`/`app-fade-in` cascade (60 → 180 → 300 → 420 ms),
+then stillness; reveal system, breathing lotus, reduced-motion and touch
+fallbacks all unchanged.
+
+### Step 5 verification record (2026-07-17)
+
+- `vue-tsc --build` ✓, `npm run lint` ✓, `npm run build` ✓,
+  `npm run test:unit` (8/8) ✓.
+- Playwright/Chromium sweep, dark + light × desktop (1440×900) + mobile
+  (390×844): layout boxes measured — no horizontal scroll anywhere, no
+  vertical scroll at either size, nav clears the card, all four nav hrefs
+  correct; idle / reveal / nav-hover screenshots reviewed; zero page errors
+  (one dev-only Vite "Outdated Optimize Dep" 504 on the first cold-start
+  load — dev-server artifact, absent on re-run; the floating widget at the
+  bottom of dev screenshots is the Vue DevTools trigger, not product UI).
+- `reducedMotion: 'reduce'`: `--glass-light-strength` stays `0` after
+  pointer movement; static composition intact ✓.
+- Not verified: Safari/Firefox (no local install) — new CSS relies on
+  `light-dark()` + `color-mix()` (both fine in current engines) on top of
+  the existing fallback skin; real login round-trip not re-run (auth script
+  logic untouched this step).
+
+### Step 5 watch items
+
+- The landing nav is a second always-mounted SVG displacement filter on the
+  page. Fine on desktop Chromium; if a future stage adds a third+ surface,
+  profile first.
+- The nav mostly refracts black stage (by design, it sits below the
+  artwork); its life comes from the GlassSurface default glows. If it ever
+  reads flat, feed it `--glass-inner-glow`/`--glass-edge-glow` overrides
+  rather than raising frost.
+- `REPO_URL` is hard-coded in LoginView (`YukaKaori/AI-Learning-Platform`).
+  If the repo moves or docs links change shape, update there.
+- The card aperture observer only re-measures the card/stage — the nav
+  never gets an aperture (correct: it should float on darkness).
 
 ## Phase 8 candidates (unchanged from Phase 7 handoff)
 

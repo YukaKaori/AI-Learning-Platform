@@ -633,6 +633,15 @@ const enUS: typeof zhCN = {
       sessionExpired: 'Your session has expired, please sign in again',
     },
   },
+  landing: {
+    tagline: 'An AI-native learning space for serious learners',
+    nav: {
+      label: 'Product navigation',
+      docs: 'Documentation',
+      features: 'Features',
+      roadmap: 'Roadmap',
+    },
+  },
   error: {
     network: 'Network error, please try again later',
     timeout: 'Request timed out, please try again later',

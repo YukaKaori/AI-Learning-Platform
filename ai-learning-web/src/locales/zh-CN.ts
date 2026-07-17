@@ -611,6 +611,15 @@ export default {
       sessionExpired: '登录已过期，请重新登录',
     },
   },
+  landing: {
+    tagline: '为认真学习的人打造的 AI 原生学习空间',
+    nav: {
+      label: '产品导航',
+      docs: '文档',
+      features: '功能特性',
+      roadmap: '路线图',
+    },
+  },
   error: {
     network: '网络连接失败，请稍后重试',
     timeout: '请求超时，请稍后重试',
