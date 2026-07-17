@@ -20,6 +20,15 @@ interface Point {
   y: number
 }
 
+/*
+ * Asymmetric intensity envelope (per-frame exponential approach factors).
+ * The light seeps in over ~0.6s but the darkness flows back over ~2.5s —
+ * a reveal that closes as slowly as real light leaving a room, never a
+ * switch. Position easing stays symmetric; only presence is asymmetric.
+ */
+const INTENSITY_ATTACK = 0.08
+const INTENSITY_RELEASE = 0.022
+
 /**
  * Interactive optical lighting for glass stages — the engine behind the
  * "living" GlassSurface.
@@ -137,7 +146,9 @@ export function useGlassSpotlight(stage: Ref<HTMLElement | null>, options: Glass
     // Exponential approach — long, calm attenuation instead of a snap.
     currentX += (goalX - currentX) * 0.12
     currentY += (goalY - currentY) * 0.12
-    currentIntensity += (goalIntensity - currentIntensity) * 0.075
+    currentIntensity +=
+      (goalIntensity - currentIntensity) *
+      (goalIntensity > currentIntensity ? INTENSITY_ATTACK : INTENSITY_RELEASE)
 
     const influence = options.influence ?? baseRadius
     const goalProximity = cardRect

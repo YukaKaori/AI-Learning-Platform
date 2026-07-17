@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/api/types'
@@ -10,11 +10,16 @@ import { AppButton, AppInput, GlassSurface } from '@/components'
 import type { IconName } from '@/components'
 import lotusUrl from '@/assets/login/pinklotus.png'
 
-// The opening scene of the product: a pink lotus asleep in near-darkness on
-// a cinematic stage. The sign-in glass (GlassSurface) permanently gathers
-// light and reveals the bloom behind it; the pointer carries a second, soft
-// light through the dark. All interaction logic lives in useGlassSpotlight —
-// this view only provides the stage and the card.
+// The opening scene of the product: a single artwork in a dark gallery.
+// The stage is pure black; the lotus hangs at its own natural size near the
+// visual centre, a hero object surrounded by negative space — never a
+// wallpaper. The sign-in glass floats in front of the flower's lower half,
+// so the sheet refracts petals and leaves instead of empty black. A darkness
+// shroud hides the artwork everywhere except two apertures: a card-shaped
+// opening under the glass (permanent) and the pointer's travelling reveal.
+// Nothing on the stage ever emits light — every change of brightness is the
+// shroud giving way, and it flows back when the pointer leaves. Interaction
+// timing lives in useGlassSpotlight; this view owns the stage composition.
 
 const { t } = useI18n()
 const route = useRoute()
@@ -52,6 +57,102 @@ const stageRef = ref<HTMLElement | null>(null)
 const cardRef = ref<InstanceType<typeof GlassSurface> | null>(null)
 const cardEl = computed(() => cardRef.value?.element ?? null)
 useGlassSpotlight(stageRef, { card: cardEl })
+
+const CARD_RADIUS = 28
+
+/*
+ * Card aperture — the shroud's one permanent opening, shaped like the glass.
+ *
+ * Measured by a dedicated observer rather than useGlassSpotlight: the
+ * spotlight sleeps on touch / reduced-motion, but the lotus must still live
+ * inside the glass there. The aperture barely clears the card: the tighter
+ * it hugs the sheet, the harder "the lotus lives only inside the glass"
+ * reads. The displacement filter can sample up to |distortionScale| / 2 px
+ * past the edge, so the outermost rim refracts a little feathered darkness —
+ * a smoked-glass border, deliberate.
+ */
+const CARD_HOLE_REACH = 16
+const CARD_HOLE_FEATHER = 14
+
+const stageFrame = shallowRef({ width: 0, height: 0 })
+const cardFrame = shallowRef({ x: 0, y: 0, width: 0, height: 0 })
+
+// Rounded so sub-pixel jitter never regenerates the mask data-URI.
+function measureFrames() {
+  const stageEl = stageRef.value
+  const card = cardEl.value
+  if (!stageEl || !card) return
+  const s = stageEl.getBoundingClientRect()
+  const c = card.getBoundingClientRect()
+  stageFrame.value = { width: Math.round(s.width), height: Math.round(s.height) }
+  cardFrame.value = {
+    x: Math.round(c.left - s.left),
+    y: Math.round(c.top - s.top),
+    width: Math.round(c.width),
+    height: Math.round(c.height),
+  }
+}
+
+let frameObserver: ResizeObserver | null = null
+
+const cardHoleMask = computed(() => {
+  const stage = stageFrame.value
+  const card = cardFrame.value
+  if (!stage.width || !card.width) return null
+  const x = card.x - CARD_HOLE_REACH
+  const y = card.y - CARD_HOLE_REACH
+  const w = card.width + CARD_HOLE_REACH * 2
+  const h = card.height + CARD_HOLE_REACH * 2
+  const rx = CARD_RADIUS + CARD_HOLE_REACH
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${stage.width}" height="${stage.height}"><defs><filter id="f" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="${CARD_HOLE_FEATHER}"/></filter><mask id="m"><rect width="100%" height="100%" fill="#fff"/><rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="#000" filter="url(#f)"/></mask></defs><rect width="100%" height="100%" fill="#fff" mask="url(#m)"/></svg>`
+  return `url("data:image/svg+xml,${encodeURIComponent(svg)}")`
+})
+
+/*
+ * Travelling aperture — the beam's reveal, entirely subtractive. Its radius
+ * is radius × strength (blooms open from zero, stays shut for touch /
+ * reduced-motion) and its centre never fully clears: a floor of darkness
+ * keeps every revealed petal dimmer than the glass.
+ */
+const revealMask =
+  'radial-gradient(circle calc(var(--glass-light-radius, 360px) * var(--glass-light-strength, 0) * 1.6) at ' +
+  'var(--glass-light-x, 50%) var(--glass-light-y, 50%), ' +
+  'rgba(0, 0, 0, 0.22) 0%, rgba(0, 0, 0, 0.42) 30%, rgba(0, 0, 0, 0.62) 55%, ' +
+  'rgba(0, 0, 0, 0.85) 78%, #000 100%)'
+
+// Both apertures multiply through mask-composite: intersect (transparency
+// from either opens the shroud). Without support, only the card aperture
+// survives — the stage stays asleep but the story still stands.
+const supportsMaskComposite =
+  typeof CSS !== 'undefined' && CSS.supports('mask-composite', 'intersect')
+
+const shroudStyle = computed(() => {
+  const hole = cardHoleMask.value
+  if (!hole) return undefined
+  if (!supportsMaskComposite) {
+    return { maskImage: hole, maskRepeat: 'no-repeat' }
+  }
+  return {
+    maskImage: `${hole}, ${revealMask}`,
+    maskRepeat: 'no-repeat',
+    maskComposite: 'intersect',
+  }
+})
+
+onMounted(() => {
+  measureFrames()
+  frameObserver = new ResizeObserver(measureFrames)
+  if (stageRef.value) frameObserver.observe(stageRef.value)
+  if (cardEl.value) frameObserver.observe(cardEl.value)
+  // The entrance animation translates the card; re-aim the aperture once the
+  // glass settles into place.
+  cardEl.value?.addEventListener('animationend', measureFrames, { once: true })
+})
+
+onBeforeUnmount(() => {
+  frameObserver?.disconnect()
+  frameObserver = null
+})
 
 onMounted(() => {
   const remembered = localStorage.getItem(REMEMBERED_USER_KEY)
@@ -118,24 +219,17 @@ function toggleLocale() {
 
 <template>
   <main ref="stageRef" class="login-stage">
-    <img
-      class="stage-lotus"
-      :src="lotusUrl"
-      alt=""
-      aria-hidden="true"
-      decoding="async"
-      fetchpriority="high"
-    />
-    <div class="stage-vignette" aria-hidden="true"></div>
-    <div class="stage-shroud" aria-hidden="true"></div>
-    <div class="stage-glow" aria-hidden="true"></div>
+    <div class="stage-artwork" aria-hidden="true">
+      <img class="stage-lotus" :src="lotusUrl" alt="" decoding="async" fetchpriority="high" />
+    </div>
+    <div class="stage-shroud" :style="shroudStyle" aria-hidden="true"></div>
 
     <GlassSurface
       ref="cardRef"
       class="login-card"
       width="100%"
       height="auto"
-      :border-radius="28"
+      :border-radius="CARD_RADIUS"
       :border-width="0.08"
       :blur="10"
       :opacity="0.97"
@@ -228,9 +322,9 @@ function toggleLocale() {
 
 <style scoped>
 /*
- * The stage — deliberately black in BOTH themes. The lotus artwork carries
- * its own black field, so the page extends it edge-to-edge; theme choice is
- * expressed by the glass card, not the backdrop.
+ * The stage — pure black in BOTH themes, edge to edge: no gradients, no
+ * texture, no tinted overlays. All the colour on the page belongs to the
+ * artwork; theme choice is expressed by the glass card, not the backdrop.
  */
 .login-stage {
   position: relative;
@@ -246,131 +340,63 @@ function toggleLocale() {
 }
 
 /*
- * The lotus fills the viewport (cover never stretches; the surround is pure
- * black so crops are invisible) and is kept optically centered — the bloom
- * sits at ~55% / 42% of the source frame. It breathes on a slow alternate
- * loop; transform/opacity only, so it stays on the compositor.
+ * The artwork — a hero object, not a wallpaper. The lotus hangs at its
+ * native 3:2 ratio, conservatively sized (~42vw, capped) so generous black
+ * negative space surrounds it, its centre a little above the viewport's:
+ * the glass card, biased below centre, then overlaps the flower's lower
+ * half. The wrapper owns position and a soft edge feather (the source
+ * frame's own black field dissolves into the stage, never reading as a
+ * pasted rectangle); the img inside owns the breathing, because app-breathe
+ * animates transform and would clobber positional transforms.
  */
-.stage-lotus {
+.stage-artwork {
   position: absolute;
-  inset: 0;
+  top: 36%;
+  left: 50%;
+  width: min(42vw, 640px);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  mask-image:
+    linear-gradient(to right, transparent, #000 9%, #000 91%, transparent),
+    linear-gradient(to bottom, transparent, #000 9%, #000 91%, transparent);
+  mask-composite: intersect;
+}
+
+/* Native aspect ratio — never stretched, never cropped. */
+.stage-lotus {
+  display: block;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 55% 42%;
+  height: auto;
   animation: app-breathe 14s var(--ease-in-out) infinite alternate;
 }
 
-/* Rose aura around the bloom + a corner vignette to pull focus inward. */
-.stage-vignette {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    radial-gradient(42% 36% at 50% 42%, var(--scene-aura), transparent 70%),
-    radial-gradient(120% 100% at 50% 42%, transparent 38%, rgba(0, 0, 0, 0.45) 74%, rgba(0, 0, 0, 0.78) 100%);
-}
-
 /*
- * Darkness shroud — the stage sleeps almost black; the lotus is hidden
- * inside it. Two feathered holes are cut into the layer (multiple mask
- * layers with `mask-composite: intersect` multiply their alphas, so
- * transparency from EITHER layer opens the shroud):
- *
- *  1. a permanent pool of light behind the centered card — the glass always
- *     reveals the bloom and always reads brighter than the stage;
- *  2. the travelling light: its aperture is radius × strength, so it blooms
- *     open softly from zero (useGlassSpotlight eases both) and stays shut
- *     for touch / reduced-motion users.
- *
- * Every ramp is long and low-contrast — light spreading through dark air,
- * not a spotlight edge.
+ * Darkness shroud — the stage sleeps nearly black; the lotus is hidden
+ * inside it. Its mask (two feathered apertures: the card-shaped opening
+ * under the glass and the travelling beam's reveal) is composed inline in
+ * the script — the card aperture is an SVG data-URI rebuilt from measured
+ * geometry, the reveal a CSS-variable-driven gradient. Every ramp is long
+ * and low-contrast: darkness giving way, never a spotlight edge.
  */
 .stage-shroud {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: rgba(0, 0, 0, 0.84);
-  mask-image:
-    radial-gradient(
-      54% 62% at 50% 50%,
-      transparent 0%,
-      rgba(0, 0, 0, 0.16) 42%,
-      rgba(0, 0, 0, 0.5) 64%,
-      rgba(0, 0, 0, 0.85) 84%,
-      #000 100%
-    ),
-    radial-gradient(
-      circle calc(var(--glass-light-radius, 360px) * var(--glass-light-strength, 0) * 1.9) at
-        var(--glass-light-x, 50%) var(--glass-light-y, 50%),
-      rgba(0, 0, 0, 0.12) 0%,
-      rgba(0, 0, 0, 0.3) 28%,
-      rgba(0, 0, 0, 0.58) 52%,
-      rgba(0, 0, 0, 0.84) 74%,
-      #000 100%
-    );
-  mask-composite: intersect;
-  transform: translateZ(0);
-}
-
-/* Without mask-composite the two layers would occlude each other's holes —
-   keep only the permanent pool there. */
-@supports not (mask-composite: intersect) {
-  .stage-shroud {
-    mask-image: radial-gradient(
-      54% 62% at 50% 50%,
-      transparent 0%,
-      rgba(0, 0, 0, 0.16) 42%,
-      rgba(0, 0, 0, 0.5) 64%,
-      rgba(0, 0, 0, 0.85) 84%,
-      #000 100%
-    );
-  }
-}
-
-/*
- * Travelling glow — the light itself, as opposed to what it uncovers.
- * Three overlapping radial falloffs (tight core, wide body, very long
- * violet tail) screen-blended over the artwork so brightness accumulates
- * optically instead of painting a disc. Alphas are whisper-low; the edges
- * are effectively invisible.
- */
-.stage-glow {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  mix-blend-mode: screen;
-  background:
-    radial-gradient(
-      circle calc(var(--glass-light-radius, 360px) * 0.5) at var(--glass-light-x, 50%)
-        var(--glass-light-y, 50%),
-      rgba(255, 216, 226, 0.13),
-      transparent 70%
-    ),
-    radial-gradient(
-      circle calc(var(--glass-light-radius, 360px) * 1.1) at var(--glass-light-x, 50%)
-        var(--glass-light-y, 50%),
-      rgba(255, 194, 210, 0.08),
-      transparent 74%
-    ),
-    radial-gradient(
-      circle calc(var(--glass-light-radius, 360px) * 2.2) at var(--glass-light-x, 50%)
-        var(--glass-light-y, 50%),
-      rgba(212, 176, 255, 0.05),
-      transparent 82%
-    );
-  opacity: var(--glass-light-strength, 0);
+  background: rgba(0, 0, 0, 0.95);
   transform: translateZ(0);
 }
 
 /*
- * The glass sheet floats in front of the bloom so GlassSurface has something
- * luminous to refract. Entrance: one soft rise, then stillness — the motion
- * belongs to the lotus, not the card.
+ * The glass sheet floats in front of the flower's lower half so GlassSurface
+ * refracts petals and leaves, not empty black. The top margin (halved by the
+ * centering flex) drops the card just below the viewport centre, letting the
+ * bloom crown rise above the sheet. Entrance: one soft rise, then stillness —
+ * the only continuous motion on the stage is the lotus breathing.
  */
 .login-card {
   position: relative;
   max-width: 520px;
+  margin-top: 14vh;
   animation: app-slide-up 640ms var(--ease-out) 60ms both;
 }
 
@@ -480,6 +506,17 @@ html.dark .login-options :deep(.app-button.variant-plain) {
 @media (max-width: 640px) {
   .login-stage {
     padding: var(--space-4);
+  }
+
+  /* Narrow screens: 42vw would shrink the artwork to a thumbnail — let it
+     take most of the width while the composition stays object-in-darkness. */
+  .stage-artwork {
+    top: 32%;
+    width: min(84vw, 420px);
+  }
+
+  .login-card {
+    margin-top: 10vh;
   }
 
   .card-body {
