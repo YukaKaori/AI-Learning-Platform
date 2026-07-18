@@ -23,6 +23,24 @@ import { computed, onBeforeUnmount, onMounted, ref, useId } from 'vue'
  *   --glass-light-radius    light radius (px)
  *   --glass-light-strength  0..1 presence of the travelling light
  *
+ * Phase 9 adds the *thick optical slab* vocabulary — three more layers, all
+ * fully gated by custom properties that default to 0/transparent, so every
+ * surface that doesn't opt in renders exactly as before:
+ *
+ *   --glass-depth           0..1 presence of the depth layer (front rim,
+ *                           inner back rim, back-face reflection, internal
+ *                           scattering) — the "thick glass" cues
+ *   --glass-density         0..1 smoked neutral-density tint strength; the
+ *                           optical replacement for frost-driven legibility
+ *   --glass-tint            color of the ND body (default: near-black smoke)
+ *   --glass-fresnel         0..1 presence of the directional Fresnel ring
+ *   --glass-light-angle     angle (deg, 0 = light above) aiming the Fresnel
+ *                           arc; without it the ring rests as a top highlight
+ *   --glass-flow-opacity    presence of the surfaceFlow layer (default .6)
+ *
+ * The optional `surfaceFlow` prop renders a slow travelling highlight and
+ * faint internal caustics (20–40s loops, transform/opacity only).
+ *
  * All lighting reacts through gradient/opacity only — the SVG displacement
  * chain is never regenerated per frame. With no variables set, the defaults
  * yield a calm, permanently lit surface.
@@ -61,6 +79,12 @@ const props = withDefaults(
     yChannel?: Channel
     /** Blend mode between the two gradient plates of the map. */
     mixBlendMode?: string
+    /**
+     * Living-surface mode: a slow travelling highlight + faint internal
+     * caustics (20–40s, transform/opacity only — the displacement filter is
+     * never touched). Off by default; reduced motion freezes it globally.
+     */
+    surfaceFlow?: boolean
   }>(),
   {
     width: 200,
@@ -80,6 +104,7 @@ const props = withDefaults(
     xChannel: 'R',
     yChannel: 'G',
     mixBlendMode: 'difference',
+    surfaceFlow: false,
   },
 )
 
@@ -254,6 +279,9 @@ defineExpose({ element: containerRef })
     </svg>
 
     <div class="glass-surface__light" aria-hidden="true"></div>
+    <div class="glass-surface__depth" aria-hidden="true"></div>
+    <div class="glass-surface__fresnel" aria-hidden="true"></div>
+    <div v-if="surfaceFlow" class="glass-surface__flow" aria-hidden="true"></div>
 
     <div class="glass-surface__content">
       <slot />
@@ -335,6 +363,166 @@ defineExpose({ element: containerRef })
   );
   opacity: calc(var(--glass-light-strength, 0) * (0.2 + var(--glass-proximity, 0) * 0.8));
   will-change: opacity;
+}
+
+/*
+ * Depth layer — the thick-slab cues (Phase 9). Every alpha is produced by
+ * color-mix() against the gating variables, so with the defaults
+ * (--glass-depth: 0, --glass-density: 0) this layer paints nothing at all.
+ *
+ * The element itself carries the smoked neutral-density body (legibility by
+ * optical density, not white frost — reads thicker toward the base), the
+ * back-face reflection (light re-emerging from the slab's rear surface) and
+ * the sharp front rim.
+ */
+.glass-surface__depth {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    radial-gradient(
+      120% 60% at 50% 110%,
+      color-mix(
+        in srgb,
+        light-dark(#ffffff, #beb6ff) calc(var(--glass-depth, 0) * 11%),
+        transparent
+      ),
+      transparent 64%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(
+        in srgb,
+        var(--glass-tint, rgb(10 12 18)) calc(var(--glass-density, 0) * 74%),
+        transparent
+      ),
+      color-mix(
+        in srgb,
+        var(--glass-tint, rgb(10 12 18)) calc(var(--glass-density, 0) * 100%),
+        transparent
+      )
+    );
+  box-shadow: inset 0 0 0 1px
+    color-mix(in srgb, light-dark(#ffffff, #e7e3ff) calc(var(--glass-depth, 0) * 34%), transparent);
+}
+
+/* Inner (back) rim — a second contour a few px inside the front edge, biased
+   1px downward: the far edge of a thick slab seen through its own body. This
+   double edge is the strongest single "heavy glass" cue. */
+.glass-surface__depth::before {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  border-radius: inherit;
+  transform: translateY(1px);
+  box-shadow:
+    inset 0 0 0 1px
+      color-mix(in srgb, light-dark(#ffffff, #d8d2ff) calc(var(--glass-depth, 0) * 13%), transparent),
+    inset 0 -1px 0
+      color-mix(in srgb, light-dark(#ffffff, #d8d2ff) calc(var(--glass-depth, 0) * 8%), transparent);
+}
+
+/* Internal scattering — light entering the slab diffuses inside the body.
+   Dormant until the travelling light is both present and near. */
+.glass-surface__depth::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle calc(var(--glass-light-radius, 360px) * 1.5) at var(--glass-light-x, 50%)
+      var(--glass-light-y, 50%),
+    light-dark(rgba(255, 255, 255, 0.16), rgba(214, 206, 255, 0.12)),
+    transparent 78%
+  );
+  opacity: calc(var(--glass-depth, 0) * var(--glass-light-strength, 0) * var(--glass-proximity, 0));
+}
+
+/*
+ * Directional Fresnel ring — a conic arc masked to the slab's rim; only the
+ * edge facing the light brightens, like a lens catching a lamp. The angle is
+ * driven by --glass-light-angle (0deg = light above); undriven it rests as a
+ * gentle top highlight. Gated fully off by --glass-fresnel: 0 (default).
+ */
+.glass-surface__fresnel {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  padding: 1.5px;
+  background: conic-gradient(
+    from calc(var(--glass-light-angle, 0deg) - 100deg),
+    transparent 0deg,
+    light-dark(rgba(255, 255, 255, 0.55), rgba(234, 230, 255, 0.45)) 100deg,
+    transparent 200deg
+  );
+  mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  mask-composite: exclude;
+  opacity: calc(var(--glass-fresnel, 0) * (0.55 + var(--glass-proximity, 0) * 0.45));
+}
+
+/* Without mask-composite the conic would flood the whole face — hide the
+   ring entirely rather than degrade badly. */
+@supports not (mask-composite: exclude) {
+  .glass-surface__fresnel {
+    display: none;
+  }
+}
+
+/*
+ * Surface flow (surfaceFlow prop) — the slab is alive: a slow travelling
+ * highlight band and two faint caustic pools, 20–40s transform/opacity
+ * loops on the compositor. Never touches the displacement filter. The
+ * global reduced-motion override freezes both keyframes.
+ */
+.glass-surface__flow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: var(--glass-flow-opacity, 0.6);
+  transition: opacity 900ms var(--ease-out);
+}
+
+.glass-surface__flow::before {
+  content: '';
+  position: absolute;
+  top: -60%;
+  bottom: -60%;
+  left: -40%;
+  width: 55%;
+  background: linear-gradient(
+    to right,
+    transparent,
+    light-dark(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.07)) 50%,
+    transparent
+  );
+  animation: app-glass-flow 34s var(--ease-in-out) infinite alternate;
+}
+
+.glass-surface__flow::after {
+  content: '';
+  position: absolute;
+  inset: -30%;
+  background:
+    radial-gradient(
+      38% 30% at 30% 34%,
+      light-dark(rgba(255, 255, 255, 0.08), rgba(196, 188, 255, 0.07)),
+      transparent 70%
+    ),
+    radial-gradient(
+      30% 26% at 72% 68%,
+      light-dark(rgba(255, 214, 236, 0.06), rgba(255, 214, 236, 0.05)),
+      transparent 70%
+    );
+  animation: app-glass-caustics 26s var(--ease-in-out) infinite alternate;
 }
 
 .glass-surface__filter {

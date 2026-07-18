@@ -634,12 +634,59 @@ const enUS: typeof zhCN = {
     },
   },
   landing: {
-    tagline: 'An AI-native learning space for serious learners',
-    nav: {
-      label: 'Product navigation',
-      docs: 'Documentation',
-      features: 'Features',
-      roadmap: 'Roadmap',
+    dock: {
+      label: 'Experience navigation',
+      login: 'Login',
+      product: 'Product',
+      sponsor: 'Sponsor',
+      current: 'Current workspace',
+    },
+    product: {
+      label: 'Product presentation',
+      hint: 'Scroll to explore',
+      hero: {
+        line: 'Learn anything, with AI beside you',
+      },
+      slides: {
+        tutor: {
+          title: 'AI Tutor',
+          line: 'Ask anything, get answers shaped to how you learn',
+        },
+        notes: {
+          title: 'AI Notes',
+          line: 'You capture the thought — AI shapes the note',
+        },
+        flashcards: {
+          title: 'Flashcards',
+          line: 'Distill notes into memory cards in one step',
+        },
+        graph: {
+          title: 'Knowledge Graph',
+          line: 'See how everything you learn connects',
+        },
+        engine: {
+          title: 'AI Engine',
+          line: 'Streaming reasoning, delivered token by token',
+        },
+        roadmap: {
+          title: 'Roadmap',
+          line: 'A learning platform that keeps evolving',
+        },
+        coming: {
+          title: 'Coming Soon',
+          line: 'More capabilities are on the way',
+        },
+      },
+    },
+    sponsor: {
+      title: 'Sponsor',
+      line: 'If this project brightens your learning, you can help keep its lights on',
+      soon: 'Coming soon',
+      items: {
+        coffee: 'Buy Me a Coffee',
+        github: 'GitHub Sponsors',
+        wechat: 'WeChat',
+      },
     },
   },
   error: {

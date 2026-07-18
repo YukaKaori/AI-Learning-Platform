@@ -1,27 +1,38 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ApiError } from '@/api/types'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore, type ThemeMode } from '@/stores/app'
 import { useGlassSpotlight } from '@/composables/useGlassSpotlight'
-import { AppButton, AppInput, GlassSurface } from '@/components'
-import type { IconName } from '@/components'
+import {
+  AppButton,
+  AppInput,
+  GlassDock,
+  GlassSurface,
+  ProductPresentation,
+  SponsorPanel,
+} from '@/components'
+import type { GalleryName, IconName } from '@/components'
 import lotusUrl from '@/assets/login/pinklotus.png'
 
-// The opening scene of the product — a landing, not a dialog. One artwork in
-// a dark gallery: the stage is pure black; the lotus hangs at its natural
-// aspect ratio as the visual hero, surrounded by negative space — never a
-// wallpaper. The sign-in glass floats over the flower's lower half so the
-// sheet refracts petals, translucent leaves and part of the core. Below it,
-// one line of product voice; near the bottom, a floating glass navigation
-// and the colophon. A darkness shroud hides the artwork everywhere except
-// two apertures: a card-shaped opening under the glass (permanent) and the
-// pointer's travelling reveal. Nothing on the stage ever emits light — every
-// change of brightness is the shroud giving way, and it flows back when the
-// pointer leaves. Interaction timing lives in useGlassSpotlight; this view
-// owns the stage composition.
+// An optical glass installation that happens to contain a login form. A black
+// gallery holds one artwork — the lotus, hero-scaled, at its native aspect
+// ratio — and two slabs of smoked optical glass float in front of it: the
+// sign-in slab, which intersects the bloom (petals continue past its edges,
+// mostly hidden in darkness), and the fluid glass bar locked to the bottom —
+// the installation's persistent navigation, three bare labels floating on
+// one wide slab of clear water glass (FluidGlass bar mode, translated). A darkness shroud hides the artwork everywhere except two apertures:
+// a card-shaped opening under the sign-in glass (permanent — the glass
+// forever reveals its part of the world) and the pointer's travelling reveal
+// (discovery). Nothing on the stage emits light except the dock's
+// underlight, which exists to be refracted. The dock moves the camera
+// between three galleries in the same room: the sign-in slab, the product
+// keynote and the sponsor page — full-screen layers that appear behind the
+// dock while the stage and the glass remain. Every material cue — density,
+// rims, Fresnel, facet reflections — lives in GlassSurface + glass.css;
+// interaction timing lives in useGlassSpotlight; this view owns composition.
 
 const { t } = useI18n()
 const route = useRoute()
@@ -47,20 +58,46 @@ const AUTH_ERROR_KEYS: Record<number, string> = {
   100002: 'auth.error.accountDisabled',
 }
 
-// The stage is black in both themes, so the glass adapts instead: light mode
-// needs a denser white frost for text contrast; dark mode stays smokier so
-// the lotus glows through. The nav bar is the same material one step
-// thinner — a satellite of the card, never its rival.
-const glassFrost = computed(() => (appStore.isDark ? 0.44 : 0.66))
-const navFrost = computed(() => (appStore.isDark ? 0.3 : 0.56))
-
 // Optical lighting: the composable eases the pointer light and writes CSS
-// variables on the stage (shroud mask + travelling glow) and on the card
-// (proximity-reactive glass). Inert on touch / reduced motion.
+// variables on the stage (shroud mask + travelling reveal), on the card
+// (proximity-reactive glass + Fresnel angle) and on every glass facet — the
+// controls AND the dock — so one light physically travels across the whole
+// installation. Facets are collected under the stage: the card's controls,
+// the dock slab itself (its sheen layer needs dock-local coordinates) and
+// the dock's buttons. Inert on touch / reduced motion. Legibility no longer
+// comes from frost: the card's smoked neutral density carries it.
 const stageRef = ref<HTMLElement | null>(null)
 const cardRef = ref<InstanceType<typeof GlassSurface> | null>(null)
 const cardEl = computed(() => cardRef.value?.element ?? null)
-useGlassSpotlight(stageRef, { card: cardEl })
+useGlassSpotlight(stageRef, {
+  card: cardEl,
+  facets: {
+    root: stageRef,
+    selector: '.app-input, .app-button, .glass-check__box, .glass-dock, .dock-item',
+  },
+})
+
+/*
+ * Gallery state — which room the camera is in. The dock persists across all
+ * three; the sign-in slab recedes (defocused, inert, still mounted so the
+ * page keeps exactly two displacement filters) while a full-screen gallery
+ * layer appears behind the dock. Closing returns focus to the dock facet
+ * that opened the gallery, so keyboard travel never resets.
+ */
+const gallery = ref<GalleryName>('login')
+const dockRef = ref<InstanceType<typeof GlassDock> | null>(null)
+
+function onDockNavigate(target: GalleryName) {
+  gallery.value = target
+}
+
+function closeGallery() {
+  const from = gallery.value
+  gallery.value = 'login'
+  if (from !== 'login') {
+    void nextTick(() => dockRef.value?.focusItem(from))
+  }
+}
 
 const CARD_RADIUS = 28
 
@@ -69,14 +106,16 @@ const CARD_RADIUS = 28
  *
  * Measured by a dedicated observer rather than useGlassSpotlight: the
  * spotlight sleeps on touch / reduced-motion, but the lotus must still live
- * inside the glass there. The aperture barely clears the card: the tighter
- * it hugs the sheet, the harder "the lotus lives only inside the glass"
- * reads. The displacement filter can sample up to |distortionScale| / 2 px
- * past the edge, so the outermost rim refracts a little feathered darkness —
- * a smoked-glass border, deliberate.
+ * inside the glass there. Phase 9 widens the reach and feather slightly: the
+ * card now intersects the hero-scaled bloom, and a whisper of petal bleeding
+ * past the rim hints that the flower continues beyond the slab — while the
+ * petals themselves stay in darkness until the travelling reveal finds them.
+ * The displacement filter can sample up to |distortionScale| / 2 px past the
+ * edge, so the outermost rim refracts a little feathered darkness — a
+ * smoked-glass border, deliberate.
  */
-const CARD_HOLE_REACH = 16
-const CARD_HOLE_FEATHER = 14
+const CARD_HOLE_REACH = 24
+const CARD_HOLE_FEATHER = 20
 
 const stageFrame = shallowRef({ width: 0, height: 0 })
 const cardFrame = shallowRef({ x: 0, y: 0, width: 0, height: 0 })
@@ -220,19 +259,6 @@ const copyrightYear = new Date().getFullYear()
 function toggleLocale() {
   appStore.setLocale(appStore.locale === 'zh-CN' ? 'en-US' : 'zh-CN')
 }
-
-// Floating glass navigation — product identity, every link a real
-// destination (the public repository and its documents). "AI Native" is the
-// wordmark, not a link.
-const REPO_URL = 'https://github.com/YukaKaori/AI-Learning-Platform'
-const NAV_RADIUS = 36
-
-const navLinks = computed(() => [
-  { label: t('landing.nav.docs'), href: `${REPO_URL}/tree/main/docs` },
-  { label: t('landing.nav.features'), href: `${REPO_URL}/blob/main/docs/ai-engine.md` },
-  { label: t('landing.nav.roadmap'), href: `${REPO_URL}/blob/main/docs/architecture.md` },
-  { label: 'GitHub', href: REPO_URL },
-])
 </script>
 
 <template>
@@ -245,21 +271,23 @@ const navLinks = computed(() => [
     <GlassSurface
       ref="cardRef"
       class="login-card"
+      :class="{ 'is-recessed': gallery !== 'login' }"
+      :inert="gallery !== 'login'"
       width="100%"
       height="auto"
       :border-radius="CARD_RADIUS"
-      :border-width="0.08"
+      :border-width="0.12"
       :blur="10"
       :opacity="0.97"
       :displace="0.5"
-      :background-opacity="glassFrost"
+      :background-opacity="0.1"
       :saturation="1.15"
-      :distortion-scale="-88"
+      :distortion-scale="-110"
       :red-offset="0"
-      :green-offset="4"
-      :blue-offset="8"
+      :green-offset="5"
+      :blue-offset="10"
     >
-      <section class="card-body" :aria-label="t('auth.login.title')">
+      <section class="card-body glass-material" :aria-label="t('auth.login.title')">
         <header class="login-header">
           <span class="brand-mark" aria-hidden="true"></span>
           <h1 class="login-title">{{ t('app.name') }}</h1>
@@ -284,9 +312,11 @@ const navLinks = computed(() => [
           />
 
           <div class="login-options">
-            <el-checkbox v-model="rememberMe" size="small">
-              {{ t('auth.login.rememberMe') }}
-            </el-checkbox>
+            <label class="glass-check">
+              <input v-model="rememberMe" type="checkbox" />
+              <span class="glass-check__box" aria-hidden="true"></span>
+              <span>{{ t('auth.login.rememberMe') }}</span>
+            </label>
             <AppButton
               variant="plain"
               size="sm"
@@ -335,39 +365,34 @@ const navLinks = computed(() => [
       </section>
     </GlassSurface>
 
-    <p class="stage-tagline">{{ t('landing.tagline') }}</p>
+    <!-- Gallery layers — full-screen rooms the camera moves into. They render
+         behind the dock (lower z-index) so the glass keeps floating above. -->
+    <Transition name="gallery">
+      <ProductPresentation v-if="gallery === 'product'" @close="closeGallery" />
+    </Transition>
+    <Transition name="gallery">
+      <SponsorPanel v-if="gallery === 'sponsor'" @close="closeGallery" />
+    </Transition>
 
-    <GlassSurface
-      class="landing-nav"
-      width="auto"
-      height="auto"
-      :border-radius="NAV_RADIUS"
-      :blur="10"
-      :opacity="0.97"
-      :displace="0.5"
-      :background-opacity="navFrost"
-      :saturation="1.1"
-      :distortion-scale="-60"
-      :red-offset="0"
-      :green-offset="3"
-      :blue-offset="6"
-    >
-      <nav class="nav-links" :aria-label="t('landing.nav.label')">
-        <span class="nav-wordmark">AI Native</span>
-        <a
-          v-for="link in navLinks"
-          :key="link.href"
-          class="nav-link"
-          :href="link.href"
-          target="_blank"
-          rel="noopener"
-        >
-          {{ link.label }}
-        </a>
-      </nav>
-    </GlassSurface>
+    <div class="dock-anchor">
+      <!-- Living underlight — soft colored lights that exist only to be
+           refracted by the dock slab floating above them. -->
+      <div class="stage-underlight" aria-hidden="true">
+        <i class="underlight-blob underlight-blob--rose"></i>
+        <i class="underlight-blob underlight-blob--violet"></i>
+        <i class="underlight-blob underlight-blob--warm"></i>
+      </div>
+      <GlassDock
+        ref="dockRef"
+        class="landing-dock"
+        :active="gallery"
+        @navigate="onDockNavigate"
+      />
+    </div>
 
-    <p class="stage-colophon">v{{ appVersion }} · © {{ copyrightYear }} {{ t('app.name') }}</p>
+    <p class="stage-colophon" :class="{ 'is-dimmed': gallery !== 'login' }">
+      v{{ appVersion }} · © {{ copyrightYear }} {{ t('app.name') }}
+    </p>
   </main>
 </template>
 
@@ -376,9 +401,9 @@ const navLinks = computed(() => [
  * The stage — pure black in BOTH themes, edge to edge: no gradients, no
  * texture, no tinted overlays. All the colour on the page belongs to the
  * artwork; theme choice is expressed by the glass surfaces, not the
- * backdrop. The page reads top to bottom as a landing: hero artwork →
- * glass login → product voice → floating navigation → colophon. Everything
- * flows in a single column so short viewports scroll instead of clipping.
+ * backdrop. The page reads top to bottom as an installation: hero artwork →
+ * sign-in slab → showcase slab → colophon. Everything flows in a single
+ * column so short viewports scroll instead of clipping.
  */
 .login-stage {
   position: relative;
@@ -408,7 +433,7 @@ const navLinks = computed(() => [
   position: absolute;
   top: 32%;
   left: 50%;
-  width: min(52vw, 800px);
+  width: min(60vw, 900px);
   transform: translate(-50%, -50%);
   pointer-events: none;
   mask-image:
@@ -442,23 +467,50 @@ const navLinks = computed(() => [
 }
 
 /*
- * The glass sheet floats in front of the flower's lower half so GlassSurface
- * refracts petals and leaves, not empty black. The top offset drops the card
- * below the lotus centre while the bloom crown rises above the sheet.
- * Entrance: one soft rise, then stillness — the only continuous motion on
- * the stage is the lotus breathing.
+ * The sign-in slab — thick smoked optical glass intersecting the bloom. The
+ * hero-scaled flower is wider than the sheet, so petals continue past both
+ * edges (into darkness — the reveal system decides when they are seen). The
+ * material is opted in here via GlassSurface's Phase 9 variables: legibility
+ * comes from smoked neutral density, never from white frost; the rims,
+ * back-face reflection and directional Fresnel make the surface read before
+ * the transparency. Entrance: one soft rise, then stillness.
  */
 .login-card {
   position: relative;
   width: 100%;
   max-width: 520px;
-  margin-top: clamp(80px, 15vh, 180px);
+  margin-top: clamp(72px, 12vh, 160px);
   animation: app-slide-up 640ms var(--ease-out) 60ms both;
+  --glass-depth: 1;
+  --glass-fresnel: 1;
+  --glass-density: 0.34;
+  /* Theme = glass temperature: light is a lighter, warmer smoke; dark is
+     deeper and violet-cast. Both are unmistakably dark glass. */
+  --glass-tint: light-dark(rgb(17 18 24), rgb(7 9 15));
+  --glass-edge-glow: 0.68;
+}
+
+/*
+ * While another gallery is on stage the sign-in slab recedes: defocused and
+ * dark, but still mounted (the page keeps exactly two displacement filters
+ * and the card aperture keeps breathing behind the gallery layer). The
+ * entrance animation must be cleared here — its fill-mode would otherwise
+ * pin opacity at 1 and win over the class. Returning to the login gallery
+ * replays the entrance: the camera stepping back to the first room.
+ */
+.login-stage .login-card.is-recessed {
+  animation: none;
+  opacity: 0;
+  filter: blur(10px);
+  pointer-events: none;
+  transition:
+    opacity 700ms var(--ease-out),
+    filter 700ms var(--ease-out);
 }
 
 .card-body {
   width: 100%;
-  padding: var(--space-10) var(--space-8) var(--space-6);
+  padding: var(--space-8) var(--space-8) var(--space-6);
 }
 
 .login-header {
@@ -466,7 +518,7 @@ const navLinks = computed(() => [
   flex-direction: column;
   align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-8);
+  margin-bottom: var(--space-6);
   text-align: center;
 }
 
@@ -505,90 +557,17 @@ const navLinks = computed(() => [
 }
 
 /*
- * On-glass control skins — the card's material language extended to every
- * control inside it: transparency, a glass border, a top highlight, a hint
- * of inner depth. Same optical family as GlassSurface, but lightweight —
- * never a second backdrop-filter (one refraction pass per stage is the
- * budget) and never a nested GlassSurface. Scoped here deliberately: the
- * app-wide components stay tuned for solid surfaces; these skins assume a
- * glass parent. light-dark() follows the card's frost (white in light,
- * smoke in dark), which tokens.css enables via color-scheme.
+ * Control optics live in the shared material system (styles/glass.css,
+ * scoped to .glass-material on the card body): smoked facets, double edges,
+ * chromatic rims, and the moving reflection driven by the spotlight's facet
+ * variables. Nothing control-material remains here — this file only owns
+ * composition.
  */
-.login-form :deep(.app-input) {
-  background: light-dark(rgba(255, 255, 255, 0.48), rgba(255, 255, 255, 0.05));
-  border-color: light-dark(rgba(24, 24, 27, 0.12), rgba(255, 255, 255, 0.13));
-  box-shadow: inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.07));
-}
-
-.login-form :deep(.app-input:focus-within) {
-  background: light-dark(rgba(255, 255, 255, 0.62), rgba(255, 255, 255, 0.08));
-  border-color: var(--color-primary);
-  box-shadow:
-    inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.75), rgba(255, 255, 255, 0.08)),
-    0 0 0 3px var(--color-primary-soft);
-}
-
-/* The primary action is the brightest glass on the card: the brand colour
-   poured into a translucent slab — rim, top highlight, and a shaded lower
-   edge give it physical thickness. */
-.login-form :deep(.app-button.variant-solid.tone-primary) {
-  background: light-dark(
-    color-mix(in srgb, var(--color-primary) 92%, transparent),
-    color-mix(in srgb, var(--color-primary) 78%, transparent)
-  );
-  border-color: light-dark(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.22));
-  box-shadow:
-    var(--shadow-glow-primary),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32),
-    inset 0 -10px 18px -12px rgba(0, 0, 0, 0.4);
-}
-.login-form :deep(.app-button.variant-solid.tone-primary:hover:not(:disabled)) {
-  background: light-dark(
-    color-mix(in srgb, var(--color-primary-hover) 94%, transparent),
-    color-mix(in srgb, var(--color-primary-hover) 86%, transparent)
-  );
-}
-.login-form :deep(.app-button.variant-solid.tone-primary:active:not(:disabled)) {
-  background: light-dark(
-    color-mix(in srgb, var(--color-primary-active) 94%, transparent),
-    color-mix(in srgb, var(--color-primary-active) 86%, transparent)
-  );
-}
-
 .login-options {
   display: flex;
   align-items: center;
   justify-content: space-between;
   margin-block: calc(var(--space-1) * -1);
-}
-
-/* Checkbox joins the material family: a tiny glass pane, frost fill and top
-   highlight; checked pours in translucent brand colour. (The token border,
-   tuned for solid surfaces, vanishes on glass.) */
-.login-options :deep(.el-checkbox__inner) {
-  border-color: light-dark(rgba(24, 24, 27, 0.3), rgba(255, 255, 255, 0.3));
-  background-color: light-dark(rgba(255, 255, 255, 0.4), rgba(255, 255, 255, 0.05));
-  box-shadow: inset 0 1px 0 light-dark(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.06));
-}
-.login-options :deep(.el-checkbox__input.is-checked .el-checkbox__inner) {
-  border-color: transparent;
-  background-color: color-mix(in srgb, var(--color-primary) 86%, transparent);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-}
-
-/* Ghost controls hover with light on glass, not the solid-surface token. */
-.card-body :deep(.app-button.variant-ghost:hover:not(:disabled)) {
-  background-color: light-dark(rgba(24, 24, 27, 0.06), rgba(255, 255, 255, 0.08));
-}
-
-/* Light mode's primary tint washes out on the mid-gray glass; the active
-   step keeps the link on-brand but legible. Dark mode's primary already
-   carries enough luminance. */
-.login-options :deep(.app-button.variant-plain) {
-  color: var(--color-primary-active);
-}
-html.dark .login-options :deep(.app-button.variant-plain) {
-  color: var(--color-primary);
 }
 
 .login-hint {
@@ -617,82 +596,95 @@ html.dark .login-options :deep(.app-button.variant-plain) {
 }
 
 /*
- * Product voice — one quiet line under the glass. It sits directly on the
- * black stage (not on glass), so it keeps a fixed dusk tone in both themes:
- * theme-relative text tokens would go dark-on-dark in light mode.
+ * Dock anchor — parks the glass bar (and the underlight it refracts) at
+ * the bottom of the stage. FluidGlass bar geometry: the anchor owns the
+ * bar's width — ~90% of the stage, capped — and the slab inside fills it,
+ * locked to the bottom edge by margin-top: auto; on short viewports it
+ * follows the flow and the page scrolls. The z-index keeps the bar
+ * floating above the gallery layers (z 40): a persistent dock, never
+ * covered by the rooms it navigates.
  */
-.stage-tagline {
+.dock-anchor {
   position: relative;
-  /* The bottom margin is the guaranteed breathing room above the nav when
-     the column overflows and the nav's auto margin collapses to zero. */
-  margin: var(--space-6) 0 var(--space-8);
-  font-size: var(--text-sm);
-  letter-spacing: var(--tracking-wide);
-  color: rgba(228, 226, 240, 0.62);
-  text-align: center;
-  animation: app-slide-up 640ms var(--ease-out) 180ms both;
+  z-index: 50;
+  width: min(100%, 720px);
+  margin-top: auto;
 }
 
-/*
- * Floating glass navigation — a satellite of the login card, same material
- * one step thinner, shaped as a pill and parked near the bottom of the
- * stage (margin-top: auto claims the leftover space; on short viewports it
- * simply follows the flow and the page scrolls). Motion is restrained to
- * colour and a soft light pool on each item — nothing translates, nothing
- * bounces, nothing overshoots.
- */
-.landing-nav {
+.landing-dock {
   position: relative;
-  margin-top: auto;
   animation: app-slide-up 640ms var(--ease-out) 300ms both;
 }
 
-.nav-links {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  height: 56px;
-  padding-inline: var(--space-5);
-}
-
-.nav-wordmark {
-  margin-right: var(--space-3);
-  padding-right: var(--space-4);
-  border-right: var(--border-width-sm) solid
-    light-dark(rgba(24, 24, 27, 0.16), rgba(255, 255, 255, 0.14));
-  font-size: var(--text-sm);
-  font-weight: 650;
-  letter-spacing: var(--tracking-wide);
-  color: var(--color-text);
-  white-space: nowrap;
-}
-
-/* On-glass link text uses theme tokens — the nav's frost carries the theme
-   just like the card, so token contrast holds. */
-.nav-link {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-full);
-  font-size: var(--text-sm);
-  color: var(--color-text-secondary);
-  text-decoration: none;
-  white-space: nowrap;
+/*
+ * Gallery transition — the camera enters another room of the same
+ * exhibition: pure defocus and darkness, no sliding, no router feel. The
+ * stage, the dock and the darkness never change; only what hangs in the
+ * room fades in through the blur.
+ */
+.gallery-enter-active {
   transition:
-    color var(--duration-base) var(--ease-out),
-    background-color var(--duration-base) var(--ease-out);
+    opacity 900ms var(--ease-out),
+    filter 900ms var(--ease-out);
 }
 
-.nav-link:hover {
-  color: var(--color-text);
-  background-color: light-dark(rgba(24, 24, 27, 0.06), rgba(255, 255, 255, 0.08));
+.gallery-leave-active {
+  transition:
+    opacity 500ms var(--ease-out),
+    filter 500ms var(--ease-out);
 }
 
-.nav-link:focus-visible {
-  outline: var(--border-width-md) solid var(--color-focus-ring);
-  outline-offset: 2px;
+.gallery-enter-from,
+.gallery-leave-to {
+  opacity: 0;
+  filter: blur(14px);
 }
 
-/* Colophon — the last, quietest line on the stage (fixed dusk tone, see
-   .stage-tagline). */
+/*
+ * Living underlight — three extremely soft colored lights (rose, violet,
+ * warm white) drifting on 30–60s transform-only loops behind the dock
+ * slab. They sit above the shroud (they are Phase 9's one deliberate light
+ * source) but below the glass, so the displacement filter genuinely refracts
+ * moving light at the slab's edges: living caustics, zero filter work.
+ */
+.stage-underlight {
+  position: absolute;
+  inset: -70% -12%;
+  pointer-events: none;
+  transform: translateZ(0);
+}
+
+.underlight-blob {
+  position: absolute;
+  width: 55%;
+  aspect-ratio: 1;
+  border-radius: 50%;
+}
+
+.underlight-blob--rose {
+  left: -4%;
+  top: 8%;
+  background: radial-gradient(circle, rgba(228, 120, 160, 0.09), transparent 70%);
+  animation: app-underlight-a 44s var(--ease-in-out) infinite alternate;
+}
+
+.underlight-blob--violet {
+  right: -6%;
+  top: -4%;
+  background: radial-gradient(circle, rgba(150, 120, 235, 0.08), transparent 70%);
+  animation: app-underlight-b 58s var(--ease-in-out) infinite alternate;
+}
+
+.underlight-blob--warm {
+  left: 28%;
+  bottom: -10%;
+  background: radial-gradient(circle, rgba(255, 235, 200, 0.05), transparent 70%);
+  animation: app-underlight-c 36s var(--ease-in-out) infinite alternate;
+}
+
+/* Colophon — the last, quietest line on the stage. It sits directly on the
+   black stage (not on glass), so it keeps a fixed dusk tone in both themes:
+   theme-relative text tokens would go dark-on-dark in light mode. */
 .stage-colophon {
   position: relative;
   margin: var(--space-3) 0 0;
@@ -702,16 +694,24 @@ html.dark .login-options :deep(.app-button.variant-plain) {
   animation: app-fade-in 640ms var(--ease-out) 420ms both;
 }
 
+/* Other galleries keep only the glass: the colophon steps into darkness
+   (animation cleared so its fill-mode cannot pin the opacity). */
+.stage-colophon.is-dimmed {
+  animation: none;
+  opacity: 0;
+  transition: opacity 500ms var(--ease-out);
+}
+
 @media (max-width: 640px) {
   .login-stage {
     padding: var(--space-4);
   }
 
-  /* Narrow screens: 52vw would shrink the artwork to a thumbnail — let it
+  /* Narrow screens: 60vw would shrink the artwork to a thumbnail — let it
      take most of the width while the composition stays object-in-darkness. */
   .stage-artwork {
     top: 30%;
-    width: min(92vw, 460px);
+    width: min(96vw, 520px);
   }
 
   .login-card {
@@ -720,23 +720,6 @@ html.dark .login-options :deep(.app-button.variant-plain) {
 
   .card-body {
     padding: var(--space-8) var(--space-5) var(--space-5);
-  }
-
-  /* The card already carries the brand — the wordmark yields its width to
-     the links on narrow stages. */
-  .nav-wordmark {
-    display: none;
-  }
-
-  .nav-links {
-    gap: var(--space-1);
-    height: 48px;
-    padding-inline: var(--space-3);
-  }
-
-  .nav-link {
-    padding: var(--space-1) var(--space-2);
-    font-size: var(--text-xs);
   }
 }
 </style>

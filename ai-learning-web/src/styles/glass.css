@@ -1,0 +1,268 @@
+/**
+ * Glass material system — the shared optical language for controls mounted
+ * on a GlassSurface slab (Phase 9).
+ *
+ * Scope: ONLY inside `.glass-material`. The rest of the application keeps
+ * its solid-surface skins; AppInput/AppButton themselves are untouched.
+ *
+ * Two mechanisms:
+ *
+ * 1. Token remap — components consume design tokens, so remapping the tokens
+ *    on the container re-skins text, labels, placeholders, icons and borders
+ *    through plain CSS inheritance. The slab is smoked in BOTH themes, so
+ *    the on-glass palette is fixed dusk (theme-relative text would go
+ *    dark-on-dark in light mode — same reasoning as the black stage).
+ *
+ * 2. Explicit optical skins for control chrome (backgrounds, edge stacks).
+ *    These fight the components' scoped styles on specificity, so every
+ *    rule doubles the context class (`.glass-material.glass-material`) to
+ *    outrank `[data-v] .app-*` rules deterministically, regardless of CSS
+ *    load order.
+ *
+ * The material vocabulary every control shares (small facets cut from the
+ * same slab as the card):
+ *   - smoked transparency (no white fills, ever)
+ *   - double edge: bright entrance lip + darker inner contour
+ *   - recessed internal depth (inputs read carved INTO the slab)
+ *   - chromatic rim: 1px cool cast up-left, 1px warm cast down-right
+ *   - moving reflection: a highlight at the facet-local --glass-light-x/y
+ *     written by useGlassSpotlight facets; its alpha is produced by
+ *     color-mix() from the inherited light strength, so it is literally
+ *     transparent for touch / reduced-motion users (strength stays 0)
+ */
+
+.glass-material {
+  /* Fixed dusk on-glass palette */
+  --on-glass-text: rgba(240, 238, 250, 0.94);
+  --on-glass-text-dim: rgba(230, 228, 244, 0.66);
+  --on-glass-text-faint: rgba(230, 228, 244, 0.42);
+
+  /* Token remap — inherited by every control inside the material */
+  --color-text: var(--on-glass-text);
+  --color-text-secondary: var(--on-glass-text-dim);
+  --color-text-tertiary: var(--on-glass-text-faint);
+  --color-border: rgba(255, 255, 255, 0.14);
+  --color-border-strong: rgba(255, 255, 255, 0.22);
+  --glass-border: rgba(255, 255, 255, 0.12);
+  --color-surface-hover: rgba(255, 255, 255, 0.07);
+
+  /* Brand steps fixed to the dark-theme values: the smoked slab is
+     theme-agnostic, and the light theme's deeper primary loses contrast on
+     dark glass. Focus ring follows via --color-focus-ring. */
+  --color-primary: #7b86e8;
+  --color-primary-hover: #8b95ee;
+  --color-primary-active: #6a76dd;
+  --color-primary-soft: rgba(123, 134, 232, 0.24);
+  --color-danger: #f87171;
+
+  color: var(--on-glass-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Inputs — panes carved INTO the slab: recessed, smoked, double-edged */
+/* ------------------------------------------------------------------ */
+
+.glass-material.glass-material .app-input {
+  border-color: rgba(255, 255, 255, 0.13);
+  background-color: transparent;
+  background-image:
+    /* moving reflection (facet-local light) */
+    radial-gradient(
+      circle 150px at var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      color-mix(
+        in srgb,
+        #ffffff calc(var(--glass-light-strength, 0) * (0.4 + var(--glass-proximity, 0) * 0.6) * 15%),
+        transparent
+      ),
+      transparent 72%
+    ),
+    /* recessed smoked pane */
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.028));
+  box-shadow:
+    inset 0 1px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(0, 0, 0, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 1px 1px 0 rgba(150, 216, 255, 0.05),
+    inset -1px -1px 0 rgba(255, 188, 150, 0.05);
+}
+
+.glass-material.glass-material .app-input:focus-within {
+  border-color: var(--color-primary);
+  background-image:
+    radial-gradient(
+      circle 150px at var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      color-mix(
+        in srgb,
+        #ffffff calc(var(--glass-light-strength, 0) * (0.4 + var(--glass-proximity, 0) * 0.6) * 15%),
+        transparent
+      ),
+      transparent 72%
+    ),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.045));
+  box-shadow:
+    inset 0 1px 6px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(0, 0, 0, 0.22),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.1),
+    inset 1px 1px 0 rgba(150, 216, 255, 0.05),
+    inset -1px -1px 0 rgba(255, 188, 150, 0.05),
+    0 0 0 3px var(--color-primary-soft);
+}
+
+/* ------------------------------------------------------------------ */
+/* Primary button — the brightest optical element: translucent brand   */
+/* poured into thick glass. Double edge, shaded exit face, damped press */
+/* ------------------------------------------------------------------ */
+
+.glass-material.glass-material .app-button.variant-solid.tone-primary {
+  border-color: rgba(255, 255, 255, 0.3);
+  background-color: transparent;
+  background-image:
+    radial-gradient(
+      circle 170px at var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      color-mix(in srgb, #ffffff calc(var(--glass-light-strength, 0) * 18%), transparent),
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-primary) 82%, transparent),
+      color-mix(in srgb, var(--color-primary-active) 88%, transparent)
+    );
+  box-shadow:
+    var(--shadow-glow-primary),
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.1),
+    inset 0 -8px 14px -10px rgba(0, 0, 0, 0.55),
+    inset 1px 1px 0 rgba(170, 225, 255, 0.1),
+    inset -1px -1px 0 rgba(255, 190, 160, 0.08);
+  /* Heavier than the app default — glass has mass */
+  transition-duration: var(--duration-base);
+}
+
+.glass-material.glass-material .app-button.variant-solid.tone-primary:hover:not(:disabled) {
+  background-color: transparent;
+  background-image:
+    radial-gradient(
+      circle 170px at var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      color-mix(in srgb, #ffffff calc(var(--glass-light-strength, 0) * 18%), transparent),
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-primary-hover) 86%, transparent),
+      color-mix(in srgb, var(--color-primary) 90%, transparent)
+    );
+}
+
+.glass-material.glass-material .app-button.variant-solid.tone-primary:active:not(:disabled) {
+  background-color: transparent;
+  background-image:
+    radial-gradient(
+      circle 170px at var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      color-mix(in srgb, #ffffff calc(var(--glass-light-strength, 0) * 18%), transparent),
+      transparent 70%
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in srgb, var(--color-primary-active) 90%, transparent),
+      color-mix(in srgb, var(--color-primary-active) 94%, transparent)
+    );
+}
+
+/* Damped press for every on-glass button — mass settling, never a spring
+   (overrides the app-wide scale press). */
+.glass-material.glass-material .app-button:active:not(:disabled) {
+  transform: translateY(0.5px);
+}
+
+/* Ghost controls (theme / language) — hover pools light on the glass */
+.glass-material.glass-material .app-button.variant-ghost {
+  color: var(--on-glass-text-dim);
+}
+.glass-material.glass-material .app-button.variant-ghost:hover:not(:disabled) {
+  background-color: rgba(255, 255, 255, 0.07);
+  color: var(--on-glass-text);
+}
+
+/* ------------------------------------------------------------------ */
+/* Native glass checkbox — replaces el-checkbox on glass surfaces      */
+/* ------------------------------------------------------------------ */
+
+.glass-check {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--on-glass-text-dim);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Visually hidden but still focusable/checkable */
+.glass-check input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  margin: 0;
+  pointer-events: none;
+}
+
+.glass-check__box {
+  position: relative;
+  flex-shrink: 0;
+  width: 15px;
+  height: 15px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background-image:
+    radial-gradient(
+      circle 90px at var(--glass-light-x, 50%) var(--glass-light-y, 50%),
+      color-mix(in srgb, #ffffff calc(var(--glass-light-strength, 0) * 12%), transparent),
+      transparent 75%
+    ),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  box-shadow:
+    inset 0 1px 3px rgba(0, 0, 0, 0.28),
+    inset 1px 1px 0 rgba(150, 216, 255, 0.05),
+    inset -1px -1px 0 rgba(255, 188, 150, 0.05);
+  transition:
+    background-color var(--duration-base) var(--ease-out),
+    border-color var(--duration-base) var(--ease-out),
+    box-shadow var(--duration-base) var(--ease-out);
+}
+
+.glass-check__box::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3.5px;
+  width: 7px;
+  height: 4px;
+  border-left: 1.5px solid rgba(255, 255, 255, 0.95);
+  border-bottom: 1.5px solid rgba(255, 255, 255, 0.95);
+  transform: rotate(-45deg);
+  opacity: 0;
+  transition: opacity var(--duration-base) var(--ease-out);
+}
+
+.glass-check input:checked + .glass-check__box {
+  border-color: transparent;
+  background-color: color-mix(in srgb, var(--color-primary) 80%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    inset 0 -4px 6px -4px rgba(0, 0, 0, 0.4);
+}
+
+.glass-check input:checked + .glass-check__box::after {
+  opacity: 1;
+}
+
+.glass-check:hover .glass-check__box {
+  border-color: rgba(255, 255, 255, 0.42);
+}
+
+.glass-check input:focus-visible + .glass-check__box {
+  outline: var(--border-width-md) solid var(--color-focus-ring);
+  outline-offset: 2px;
+}

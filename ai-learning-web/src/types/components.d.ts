@@ -28,7 +28,6 @@ declare module 'vue' {
     AppSkeleton: typeof import('./../components/AppSkeleton.vue')['default']
     AppTag: typeof import('./../components/AppTag.vue')['default']
     AppTooltip: typeof import('./../components/AppTooltip.vue')['default']
-    ElCheckbox: typeof import('element-plus/es')['ElCheckbox']
     ElDatePicker: typeof import('element-plus/es')['ElDatePicker']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElDrawer: typeof import('element-plus/es')['ElDrawer']
@@ -37,10 +36,13 @@ declare module 'vue' {
     ElSelect: typeof import('element-plus/es')['ElSelect']
     ElTimePicker: typeof import('element-plus/es')['ElTimePicker']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    GlassDock: typeof import('./../components/experience/GlassDock.vue')['default']
     GlassScene: typeof import('./../components/experience/GlassScene.vue')['default']
     GlassSurface: typeof import('./../components/experience/GlassSurface.vue')['default']
+    ProductPresentation: typeof import('./../components/experience/ProductPresentation.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SponsorPanel: typeof import('./../components/experience/SponsorPanel.vue')['default']
     StatTile: typeof import('./../components/StatTile.vue')['default']
   }
 }

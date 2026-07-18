@@ -79,6 +79,66 @@
 }
 
 /*
+ * Optical-glass vocabulary (Phase 9). All of these run VERY long (20–60s,
+ * alternate) and animate transform/opacity only — they live on layers whose
+ * job is to be refracted or to suggest light moving inside glass; the SVG
+ * displacement filter itself is never animated. Reduced-motion users get a
+ * static frame via the global override below.
+ */
+
+/* Travelling highlight band crossing a slab (GlassSurface surfaceFlow). The
+   element is a ~55%-wide stripe; 260% of its own width spans the surface. */
+@keyframes app-glass-flow {
+  from {
+    transform: translate3d(-10%, 0, 0) rotate(24deg);
+  }
+  to {
+    transform: translate3d(260%, 0, 0) rotate(24deg);
+  }
+}
+
+/* Faint caustic pools drifting inside the slab body. */
+@keyframes app-glass-caustics {
+  from {
+    transform: translate3d(-3%, -2%, 0) scale(1);
+    opacity: 0.7;
+  }
+  to {
+    transform: translate3d(3%, 2%, 0) scale(1.06);
+    opacity: 1;
+  }
+}
+
+/* Living underlight — slow paths for the soft light blobs the showcase slab
+   refracts (three variants so the blobs never sync up). */
+@keyframes app-underlight-a {
+  from {
+    transform: translate3d(-16%, 4%, 0) scale(1);
+  }
+  to {
+    transform: translate3d(14%, -8%, 0) scale(1.15);
+  }
+}
+
+@keyframes app-underlight-b {
+  from {
+    transform: translate3d(10%, -6%, 0) scale(1.1);
+  }
+  to {
+    transform: translate3d(-12%, 6%, 0) scale(0.95);
+  }
+}
+
+@keyframes app-underlight-c {
+  from {
+    transform: translate3d(-6%, 8%, 0) scale(0.9);
+  }
+  to {
+    transform: translate3d(8%, -4%, 0) scale(1.1);
+  }
+}
+
+/*
  * Scroll-entrance vocabulary, driven by useScrollReveal():
  * elements marked [data-reveal] start soft and settle into place once the
  * composable flags them visible. Stagger with --reveal-delay on the element.

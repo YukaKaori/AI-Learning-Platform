@@ -612,12 +612,59 @@ export default {
     },
   },
   landing: {
-    tagline: '为认真学习的人打造的 AI 原生学习空间',
-    nav: {
-      label: '产品导航',
-      docs: '文档',
-      features: '功能特性',
-      roadmap: '路线图',
+    dock: {
+      label: '体验导航',
+      login: '登录',
+      product: '产品',
+      sponsor: '赞助',
+      current: '当前工作区',
+    },
+    product: {
+      label: '产品演示',
+      hint: '滚动继续浏览',
+      hero: {
+        line: '让 AI 伴你学习每一步',
+      },
+      slides: {
+        tutor: {
+          title: 'AI 导师',
+          line: '随时提问，获得因材施教的即时解答',
+        },
+        notes: {
+          title: 'AI 笔记',
+          line: '专注记录，整理与润色交给 AI',
+        },
+        flashcards: {
+          title: '闪卡复习',
+          line: '一键把笔记炼成记忆卡片',
+        },
+        graph: {
+          title: '知识图谱',
+          line: '看见知识之间的联系',
+        },
+        engine: {
+          title: 'AI 引擎',
+          line: '流式推理，逐字呈现',
+        },
+        roadmap: {
+          title: '路线图',
+          line: '一个持续进化的学习平台',
+        },
+        coming: {
+          title: '敬请期待',
+          line: '更多能力正在路上',
+        },
+      },
+    },
+    sponsor: {
+      title: '赞助',
+      line: '如果这个项目照亮了你的学习，欢迎为它续一盏灯',
+      soon: '敬请期待',
+      items: {
+        coffee: '请我喝咖啡',
+        github: 'GitHub 赞助',
+        wechat: '微信',
+      },
     },
   },
   error: {

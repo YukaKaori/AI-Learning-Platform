@@ -13,6 +13,15 @@ export interface GlassSpotlightOptions {
    * Defaults to the base radius.
    */
   influence?: number
+  /**
+   * Glass facets — the on-slab controls that receive the moving reflection.
+   * `selector` is queried under `root` when rects are (re)measured, so
+   * component-internal elements (e.g. AppInput's inner box) can be targeted
+   * without modifying the components. Each facet only receives facet-local
+   * `--glass-light-x/y`; strength, radius and proximity inherit through the
+   * CSS cascade from the card. No extra observers, no hot-path layout reads.
+   */
+  facets?: { root: Ref<HTMLElement | null>; selector: string }
 }
 
 interface Point {
@@ -44,6 +53,11 @@ const INTENSITY_RELEASE = 0.022
  *   on the card element (options.card), in card-local coordinates
  *     the same four, plus
  *     --glass-proximity                   0..1 pointer closeness to the card
+ *     --glass-light-angle                 deg, light direction from the card
+ *                                         centre (0 = above), unwrapped so the
+ *                                         Fresnel arc never snaps at ±180°
+ *   on each facet element (options.facets), in facet-local coordinates
+ *     --glass-light-x / --glass-light-y   (everything else inherits)
  *
  * Rendering must consume those variables (gradient positions, mask radii,
  * layer opacities). The returned refs update every frame and exist for logic
@@ -96,12 +110,30 @@ export function useGlassSpotlight(stage: Ref<HTMLElement | null>, options: Glass
   let cardRect: DOMRect | null = null
   let resizeObserver: ResizeObserver | null = null
 
+  // Facet elements + rects, collected alongside the other rects (same dirty
+  // flag — a facet only moves when layout changes, which already marks dirty).
+  let facetEls: HTMLElement[] = []
+  let facetRects: DOMRect[] = []
+
+  // Unwrapped Fresnel angle: successive frames pick the representation of the
+  // new angle closest to the previous one, so the arc glides through ±180°
+  // instead of snapping across the seam.
+  let lastAngle = 0
+
   const supportsHover = window.matchMedia('(hover: hover) and (pointer: fine)')
   const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
 
   function measureRects() {
     stageRect = stage.value?.getBoundingClientRect() ?? null
     cardRect = card?.value?.getBoundingClientRect() ?? null
+    const facetRoot = options.facets?.root.value
+    if (facetRoot && options.facets) {
+      facetEls = Array.from(facetRoot.querySelectorAll<HTMLElement>(options.facets.selector))
+      facetRects = facetEls.map((el) => el.getBoundingClientRect())
+    } else {
+      facetEls = []
+      facetRects = []
+    }
     rectsDirty = false
   }
 
@@ -137,6 +169,34 @@ export function useGlassSpotlight(stage: Ref<HTMLElement | null>, options: Glass
       cardEl.style.setProperty('--glass-light-radius', `${effectiveRadius.toFixed(1)}px`)
       cardEl.style.setProperty('--glass-light-strength', strength.toFixed(3))
       cardEl.style.setProperty('--glass-proximity', currentProximity.toFixed(3))
+
+      // Light direction from the card centre (0deg = light above), unwrapped.
+      const raw =
+        (Math.atan2(
+          currentY - (cardRect.top + cardRect.height / 2),
+          currentX - (cardRect.left + cardRect.width / 2),
+        ) *
+          180) /
+          Math.PI +
+        90
+      let angle = raw
+      while (angle - lastAngle > 180) angle -= 360
+      while (angle - lastAngle < -180) angle += 360
+      lastAngle = angle
+      cardEl.style.setProperty('--glass-light-angle', `${angle.toFixed(1)}deg`)
+    }
+
+    // Facet-local light position — only while the light is actually present
+    // (their reflection layers are opacity-gated by the inherited strength,
+    // so stale positions are invisible once it dies).
+    if (strength > 0.01) {
+      for (let i = 0; i < facetEls.length; i++) {
+        const el = facetEls[i]
+        const rect = facetRects[i]
+        if (!el || !rect) continue
+        el.style.setProperty('--glass-light-x', `${(currentX - rect.left).toFixed(1)}px`)
+        el.style.setProperty('--glass-light-y', `${(currentY - rect.top).toFixed(1)}px`)
+      }
     }
   }
 
