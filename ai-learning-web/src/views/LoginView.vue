@@ -374,7 +374,7 @@ function toggleLocale() {
       <SponsorPanel v-if="gallery === 'sponsor'" @close="closeGallery" />
     </Transition>
 
-    <div class="dock-anchor">
+    <div class="dock-anchor" :class="{ 'is-on-light': gallery === 'product' }">
       <!-- Living underlight — soft colored lights that exist only to be
            refracted by the dock slab floating above them. -->
       <div class="stage-underlight" aria-hidden="true">
@@ -413,7 +413,11 @@ function toggleLocale() {
   min-height: 100vh;
   min-height: 100dvh;
   padding: var(--space-6);
-  overflow: hidden;
+  /* clip, not hidden: hidden leaves the stage programmatically scrollable
+     (the underlight bleed gives it ~340px of hidden overflow), and Chromium
+     will sometimes scroll it while the Product layer enters — visibly
+     teleporting the dock. clip is not a scroll container: nothing can. */
+  overflow: clip;
   background: #000;
   isolation: isolate;
 }
@@ -614,6 +618,21 @@ function toggleLocale() {
 .landing-dock {
   position: relative;
   animation: app-slide-up 640ms var(--ease-out) 300ms both;
+}
+
+/*
+ * While the Product page (Phase 12's bright room) is on stage, the dock's
+ * fixed dusk labels would vanish into the light. ONLY the text tokens flip
+ * to dark ink — the glass geometry, material and motion stay untouched.
+ * `.glass-material` declares these variables on itself, so the override
+ * must land on that element, not on an ancestor.
+ */
+.dock-anchor.is-on-light :deep(.glass-material) {
+  --on-glass-text: rgba(33, 28, 68, 0.92);
+  --on-glass-text-dim: rgba(33, 28, 68, 0.6);
+  --on-glass-text-faint: rgba(33, 28, 68, 0.4);
+  --dock-halo: rgba(255, 255, 255, 0.7);
+  --dock-halo-active: rgba(120, 90, 255, 0.4);
 }
 
 /*

@@ -2,183 +2,127 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../AppIcon.vue'
-import type { IconName } from '../icons/registry'
+import { useScrollReveal } from '@/composables/useScrollReveal'
 
 /**
- * Product presentation — an Apple-keynote product gallery (Phase 11).
+ * Product page — a premium commercial product website (Phase 12).
  *
- * A full-viewport gallery layer that appears BEHIND the persistent glass
- * dock: one slide per viewport, one wheel gesture per slide, generous
- * whitespace, almost no text. The paging engine is Phase 10's verbatim —
- * wheel delta accumulation with an idle reset, a heavy transition lock so
- * rapid input moves exactly one slide, keyboard paging, vertical touch
- * swipe, a finite deck with no autoplay.
+ * Phase 11's dark keynote becomes a bright product site: the login stage
+ * stays the black gallery, and opening Product steps into a completely
+ * different world — warm whites, soft pastel atmospheres, real landing-page
+ * compositions. The contrast is the point: dark → bright, art → product.
  *
- * What changed in Phase 11: the deck is no longer black. This page is the
- * one colorful space in the project. Each slide owns a full-bleed color
- * atmosphere (mesh-gradient fields on slow transform drifts) and a CSS-only
- * visual composition — floating cards, a glowing constellation, rising
- * particles, a timeline. The atmospheres run edge to edge underneath the
- * dock, so the dock's displacement refraction finally has moving colored
- * light to bend: the world scrolls, the glass never moves.
+ * The paged keynote engine is retired. This layer is a NATIVE scroll
+ * container with gentle CSS scroll-snap (`y proximity`): eight full-viewport
+ * sections that scroll like apple.com, not like a slide deck. Sections
+ * alternate composition — text left / visual right, flipped, centered,
+ * a diagonal — and every visual is a CSS-only UI mockup (a conversation
+ * window, a note editor with a code panel, a card stack in depth, a glowing
+ * constellation, a streaming response, a milestone timeline). No WebGL, no
+ * new dependencies, no GlassSurface here: the page keeps exactly two
+ * displacement filters (sign-in slab + dock), and the dock floating above
+ * finally refracts bright colored fields instead of darkness.
  *
- * Motion is layered by speed — content refocuses in ~1s, the atmosphere
- * cross-fades over ~1.6s ("light moves slower than glass"). Still no
- * GlassSurface here: the page keeps exactly two displacement filters
- * (sign-in slab + dock). Everything below is gradients and transforms.
+ * Motion stays subtle: slow scroll-reveals via the house `[data-reveal]`
+ * vocabulary, gentle `app-float` loops, drifting atmosphere blobs. No
+ * springs, no bounce. Reduced motion reveals everything immediately
+ * (useScrollReveal) and the global override freezes the loops.
  *
- * Escape (or the dock's Login facet) returns the camera to the sign-in
- * gallery via the `close` event.
+ * Escape (or the dock's Login facet) returns to the sign-in gallery via
+ * the `close` event, exactly as before.
  */
 
 const { t } = useI18n()
 
 const emit = defineEmits<{ close: [] }>()
 
-const SLIDES: ReadonlyArray<{ key: string; icon: IconName | null }> = [
-  { key: 'hero', icon: null },
-  { key: 'tutor', icon: 'graduation-cap' },
-  { key: 'notes', icon: 'notebook-pen' },
-  { key: 'flashcards', icon: 'layers' },
-  { key: 'graph', icon: 'network' },
-  { key: 'engine', icon: 'cpu' },
-  { key: 'roadmap', icon: 'route' },
-  { key: 'coming', icon: 'sparkles' },
-]
+const SECTIONS = [
+  'hero',
+  'tutor',
+  'notes',
+  'flashcards',
+  'graph',
+  'engine',
+  'roadmap',
+  'coming',
+] as const
 
-const slides = computed(() =>
-  SLIDES.map(({ key, icon }) => ({
-    key,
-    icon,
-    title: key === 'hero' ? t('app.name') : t(`landing.product.slides.${key}.title`),
-    line: key === 'hero' ? t('landing.product.hero.line') : t(`landing.product.slides.${key}.line`),
-  })),
+const navItems = computed(() =>
+  SECTIONS.map((key) =>
+    key === 'hero' ? t('app.name') : t(`landing.product.slides.${key}.title`),
+  ),
 )
 
-/* The roadmap timeline reuses the deck's own feature titles — the story the
-   audience just watched, laid out in order. No extra strings. */
+/** The three feature points shown beside a split section's headline. */
+function points(key: 'tutor' | 'notes' | 'graph' | 'engine') {
+  return (['p1', 'p2', 'p3'] as const).map((p) => t(`landing.product.slides.${key}.${p}`))
+}
+
 const roadmapStops = computed(() => [
-  { label: t('landing.product.slides.tutor.title'), soon: false },
-  { label: t('landing.product.slides.notes.title'), soon: false },
-  { label: t('landing.product.slides.graph.title'), soon: false },
-  { label: t('landing.product.slides.coming.title'), soon: true },
+  { label: t('landing.product.slides.roadmap.m1'), soon: false },
+  { label: t('landing.product.slides.roadmap.m2'), soon: false },
+  { label: t('landing.product.slides.roadmap.m3'), soon: false },
+  { label: t('landing.product.slides.roadmap.m4'), soon: true },
 ])
 
 const rootRef = ref<HTMLElement | null>(null)
-const index = ref(0)
-const direction = ref<1 | -1>(1)
-const locked = ref(false)
-const announcement = ref('')
+const activeIndex = ref(0)
 
-const current = computed(() => slides.value[index.value]!)
-const transitionName = computed(() => (direction.value > 0 ? 'refocus-next' : 'refocus-prev'))
+useScrollReveal(rootRef)
 
-const LOCK_MS = 1050
-const WHEEL_THRESHOLD = 42
-const SWIPE_THRESHOLD = 40
+let sections: HTMLElement[] = []
+let sectionObserver: IntersectionObserver | null = null
 
-let unlockTimer = 0
-let wheelIdleTimer = 0
-let wheelAcc = 0
-let touchStartY: number | null = null
-
-function go(delta: number) {
-  if (locked.value) return
-  const target = index.value + (delta > 0 ? 1 : -1)
-  if (target < 0 || target >= SLIDES.length) return
-  direction.value = delta > 0 ? 1 : -1
-  index.value = target
-  afterMove()
-}
-
-function goTo(target: number) {
-  if (locked.value || target === index.value) return
-  direction.value = target > index.value ? 1 : -1
-  index.value = target
-  afterMove()
-}
-
-function afterMove() {
-  locked.value = true
-  window.clearTimeout(unlockTimer)
-  unlockTimer = window.setTimeout(() => {
-    locked.value = false
-  }, LOCK_MS)
-  const slide = slides.value[index.value]
-  announcement.value = slide ? `${slide.title} — ${slide.line}` : ''
-}
-
-/* Wheel owns the whole gallery layer: the page underneath must never
-   scroll while the keynote is on stage. */
-function onWheel(event: WheelEvent) {
-  event.preventDefault()
-  wheelAcc += event.deltaY
-  window.clearTimeout(wheelIdleTimer)
-  wheelIdleTimer = window.setTimeout(() => {
-    wheelAcc = 0
-  }, 240)
-  if (locked.value) return
-  if (Math.abs(wheelAcc) >= WHEEL_THRESHOLD) {
-    const delta = Math.sign(wheelAcc)
-    wheelAcc = 0
-    go(delta)
-  }
+function goTo(i: number) {
+  // behavior stays unset: the container's CSS scroll-behavior decides, so
+  // reduced-motion users get an instant jump for free.
+  sections[i]?.scrollIntoView({ block: 'start' })
 }
 
 function onKeydown(event: KeyboardEvent) {
-  switch (event.key) {
-    case 'ArrowDown':
-    case 'PageDown':
-      event.preventDefault()
-      go(1)
-      break
-    case 'ArrowUp':
-    case 'PageUp':
-      event.preventDefault()
-      go(-1)
-      break
-    case 'Home':
-      event.preventDefault()
-      goTo(0)
-      break
-    case 'End':
-      event.preventDefault()
-      goTo(SLIDES.length - 1)
-      break
-    case 'Escape':
-      event.preventDefault()
-      emit('close')
-      break
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    emit('close')
   }
 }
 
-/* Vertical swipe pages the deck; mouse drags are ignored (mouse users have
-   the wheel and the beads). */
-function onPointerDown(event: PointerEvent) {
-  if (event.pointerType === 'mouse') return
-  touchStartY = event.clientY
-}
-
-function onPointerUp(event: PointerEvent) {
-  if (touchStartY != null) {
-    const travel = touchStartY - event.clientY
-    if (Math.abs(travel) >= SWIPE_THRESHOLD) go(travel > 0 ? 1 : -1)
-  }
-  touchStartY = null
-}
-
-function onPointerCancel() {
-  touchStartY = null
+/* The dock floats above this layer as a sibling, so wheel input over the
+   glass would otherwise fall into a dead zone (the stage beneath cannot
+   scroll). Forward it into the page. */
+function onWindowWheel(event: WheelEvent) {
+  const root = rootRef.value
+  if (!root || !(event.target instanceof Node) || root.contains(event.target)) return
+  root.scrollTop += event.deltaY
 }
 
 onMounted(() => {
-  // The keynote takes the keyboard as soon as the camera arrives.
-  rootRef.value?.focus()
+  const root = rootRef.value
+  if (!root) return
+  // The page takes the keyboard on arrival: arrows scroll, Escape leaves.
+  // preventScroll matters: the login stage behind has hidden scrollable
+  // overflow (the underlight bleed), and a plain focus() makes Chromium
+  // scroll that overflow-hidden stage — visibly teleporting the dock.
+  root.focus({ preventScroll: true })
+  sections = Array.from(root.querySelectorAll<HTMLElement>('.pp-section'))
+  sectionObserver = new IntersectionObserver(
+    (entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const i = sections.indexOf(entry.target as HTMLElement)
+          if (i >= 0) activeIndex.value = i
+        }
+      }
+    },
+    { root, threshold: 0.55 },
+  )
+  sections.forEach((section) => sectionObserver?.observe(section))
+  window.addEventListener('wheel', onWindowWheel, { passive: true })
 })
 
 onBeforeUnmount(() => {
-  window.clearTimeout(unlockTimer)
-  window.clearTimeout(wheelIdleTimer)
+  sectionObserver?.disconnect()
+  sectionObserver = null
+  window.removeEventListener('wheel', onWindowWheel)
 })
 </script>
 
@@ -186,93 +130,199 @@ onBeforeUnmount(() => {
   <section
     ref="rootRef"
     class="presentation"
-    role="group"
-    aria-roledescription="carousel"
     :aria-label="t('landing.product.label')"
     tabindex="-1"
-    @wheel="onWheel"
     @keydown="onKeydown"
-    @pointerdown="onPointerDown"
-    @pointerup="onPointerUp"
-    @pointercancel="onPointerCancel"
   >
-    <!-- Atmosphere — the slide's full-bleed color field. It runs under the
-         dock and cross-fades slower than the content above it. -->
-    <div class="atmosphere" aria-hidden="true">
-      <Transition name="atmo">
-        <div :key="current.key" class="atmo" :class="`atmo--${current.key}`">
-          <i class="atmo-blob atmo-blob--a"></i>
-          <i class="atmo-blob atmo-blob--b"></i>
-          <i class="atmo-blob atmo-blob--c"></i>
-          <i v-if="current.key === 'hero'" class="atmo-sheen"></i>
+    <!-- 1 · Hero — centered, the product name in full light. -->
+    <section class="pp-section pp-section--hero">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="hero-inner">
+        <div class="hero-cards" aria-hidden="true" data-reveal style="--reveal-delay: 260ms">
+          <div class="ui-window hero-card hero-card--chat">
+            <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
+            <i class="skel" style="width: 78%"></i>
+            <i class="skel" style="width: 52%"></i>
+            <i class="skel skel--accent" style="width: 64%"></i>
+          </div>
+          <div class="ui-window hero-card hero-card--graph">
+            <i class="hero-node" style="left: 22%; top: 30%"></i>
+            <i class="hero-node" style="left: 66%; top: 22%"></i>
+            <i class="hero-node" style="left: 48%; top: 62%"></i>
+            <i class="hero-edge" style="left: 26%; top: 32%; width: 42%; rotate: -8deg"></i>
+            <i class="hero-edge" style="left: 50%; top: 34%; width: 26%; rotate: 58deg"></i>
+          </div>
         </div>
-      </Transition>
-    </div>
+        <h2 class="pp-title pp-title--hero" data-reveal>{{ t('app.name') }}</h2>
+        <p class="pp-sub pp-sub--hero" data-reveal style="--reveal-delay: 140ms">
+          {{ t('landing.product.hero.line') }}
+        </p>
+        <p class="pp-hint" data-reveal style="--reveal-delay: 320ms">
+          <AppIcon name="chevron-down" size="sm" />
+          {{ t('landing.product.hint') }}
+        </p>
+      </div>
+    </section>
 
-    <div class="presentation-viewport">
-      <Transition :name="transitionName">
-        <article :key="index" class="pp-slide" :class="`pp-slide--${current.key}`">
-          <!-- AI Tutor — a conversation floating in space. -->
-          <div v-if="current.key === 'tutor'" class="pp-visual visual-tutor" aria-hidden="true">
-            <div class="pp-card tutor-card tutor-card--question">
-              <i class="skel" style="width: 64%"></i>
-              <i class="skel" style="width: 38%"></i>
-            </div>
-            <div class="pp-card tutor-card tutor-card--answer">
-              <span class="tutor-badge"><AppIcon name="graduation-cap" size="sm" /></span>
-              <i class="skel" style="width: 82%"></i>
-              <i class="skel" style="width: 66%"></i>
-              <i class="skel" style="width: 44%"></i>
-            </div>
-            <div class="pp-card tutor-card tutor-card--echo">
-              <i class="skel" style="width: 56%"></i>
+    <!-- 2 · AI Tutor — text left, conversation window right. -->
+    <section class="pp-section pp-section--tutor">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-grid">
+        <div class="pp-copy" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="graduation-cap" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.tutor.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.tutor.line') }}</p>
+          <ul class="pp-points">
+            <li v-for="p in points('tutor')" :key="p" class="pp-point">
+              <span class="point-icon" aria-hidden="true"><AppIcon name="check" :size="13" /></span>
+              {{ p }}
+            </li>
+          </ul>
+        </div>
+        <div class="pp-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+          <div class="ui-window chat-window">
+            <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
+            <div class="chat-body">
+              <div class="chat-bubble chat-bubble--user">
+                <i class="skel skel--onprimary" style="width: 72%"></i>
+                <i class="skel skel--onprimary" style="width: 44%"></i>
+              </div>
+              <div class="chat-bubble chat-bubble--ai">
+                <span class="chat-badge"><AppIcon name="graduation-cap" :size="14" /></span>
+                <div class="chat-lines">
+                  <i class="skel" style="width: 92%"></i>
+                  <i class="skel" style="width: 78%"></i>
+                  <i class="skel" style="width: 56%"></i>
+                </div>
+              </div>
             </div>
           </div>
+          <div class="float-chip float-chip--a">
+            <AppIcon name="sparkles" :size="14" />
+            <i class="skel skel--chip" style="width: 62px"></i>
+          </div>
+          <div class="float-chip float-chip--b">
+            <AppIcon name="message-square" :size="14" />
+            <i class="skel skel--chip" style="width: 46px"></i>
+          </div>
+          <div class="ui-window float-panel timeline-panel">
+            <div class="tl-row"><i class="tl-dot"></i><i class="skel" style="width: 68%"></i></div>
+            <div class="tl-row"><i class="tl-dot"></i><i class="skel" style="width: 52%"></i></div>
+            <div class="tl-row"><i class="tl-dot tl-dot--now"></i><i class="skel" style="width: 60%"></i></div>
+          </div>
+        </div>
+      </div>
+    </section>
 
-          <!-- AI Notes — colorful snippets, softly connected. -->
-          <div
-            v-else-if="current.key === 'notes'"
-            class="pp-visual visual-notes"
-            aria-hidden="true"
-          >
-            <i class="notes-thread notes-thread--a"></i>
-            <i class="notes-thread notes-thread--b"></i>
-            <div class="pp-card note-card note-card--amber">
-              <i class="note-dot"></i>
-              <i class="skel" style="width: 74%"></i>
-              <i class="skel" style="width: 48%"></i>
+    <!-- 3 · AI Notes — editor left, text right. -->
+    <section class="pp-section pp-section--notes">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-grid pp-grid--flip">
+        <div class="pp-copy" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="notebook-pen" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.notes.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.notes.line') }}</p>
+          <ul class="pp-points">
+            <li v-for="p in points('notes')" :key="p" class="pp-point">
+              <span class="point-icon" aria-hidden="true"><AppIcon name="check" :size="13" /></span>
+              {{ p }}
+            </li>
+          </ul>
+        </div>
+        <div class="pp-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+          <div class="ui-window note-window">
+            <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
+            <i class="skel skel--title" style="width: 56%"></i>
+            <i class="skel" style="width: 92%"></i>
+            <i class="skel" style="width: 84%"></i>
+            <i class="note-image"></i>
+            <i class="skel" style="width: 64%"></i>
+          </div>
+          <div class="float-panel code-panel">
+            <div class="code-line">
+              <i class="code-tok code-tok--violet" style="width: 34px"></i>
+              <i class="code-tok" style="width: 58px"></i>
             </div>
-            <div class="pp-card note-card note-card--rose">
-              <i class="note-dot"></i>
-              <i class="skel" style="width: 66%"></i>
-              <i class="skel" style="width: 52%"></i>
+            <div class="code-line">
+              <i class="code-tok code-tok--rose" style="width: 46px"></i>
+              <i class="code-tok" style="width: 30px"></i>
+              <i class="code-tok code-tok--cyan" style="width: 40px"></i>
             </div>
-            <div class="pp-card note-card note-card--violet">
-              <i class="note-dot"></i>
-              <i class="skel" style="width: 58%"></i>
+            <div class="code-line">
+              <i class="code-tok" style="width: 24px"></i>
+              <i class="code-tok code-tok--amber" style="width: 52px"></i>
             </div>
           </div>
-
-          <!-- Flashcards — a deck resting in depth. -->
-          <div
-            v-else-if="current.key === 'flashcards'"
-            class="pp-visual visual-stack"
-            aria-hidden="true"
-          >
-            <div class="pp-card stack-card stack-card--far"></div>
-            <div class="pp-card stack-card stack-card--mid"></div>
-            <div class="pp-card stack-card stack-card--front">
-              <AppIcon name="layers" :size="40" :stroke-width="1.25" />
-              <i class="skel" style="width: 54%"></i>
-            </div>
+          <div class="float-chip float-chip--note">
+            <AppIcon name="sparkles" :size="14" />
+            <i class="skel skel--chip" style="width: 52px"></i>
           </div>
+        </div>
+      </div>
+    </section>
 
-          <!-- Knowledge Graph — a glowing constellation. -->
-          <div
-            v-else-if="current.key === 'graph'"
-            class="pp-visual visual-graph"
-            aria-hidden="true"
-          >
+    <!-- 4 · Flashcards — centered, a deck resting in depth. -->
+    <section class="pp-section pp-section--flashcards">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-center">
+        <div class="pp-copy pp-copy--center" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="layers" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.flashcards.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.flashcards.line') }}</p>
+        </div>
+        <div class="pp-stage stack-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+          <div class="ui-window stack-card stack-card--far"></div>
+          <div class="ui-window stack-card stack-card--mid"></div>
+          <div class="ui-window stack-card stack-card--front">
+            <AppIcon name="layers" :size="36" :stroke-width="1.25" />
+            <i class="skel" style="width: 52%"></i>
+          </div>
+          <div class="stack-progress">
+            <i class="progress-dot is-done"></i>
+            <i class="progress-dot is-done"></i>
+            <i class="progress-dot"></i>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5 · Knowledge Graph — text left, constellation right. -->
+    <section class="pp-section pp-section--graph">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-grid">
+        <div class="pp-copy" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="network" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.graph.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.graph.line') }}</p>
+          <ul class="pp-points">
+            <li v-for="p in points('graph')" :key="p" class="pp-point">
+              <span class="point-icon" aria-hidden="true"><AppIcon name="check" :size="13" /></span>
+              {{ p }}
+            </li>
+          </ul>
+        </div>
+        <div class="pp-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+          <div class="graph-field">
             <i class="graph-link" style="width: 173px; transform: rotate(-157.6deg)"></i>
             <i class="graph-link" style="width: 169px; transform: rotate(-27.5deg)"></i>
             <i class="graph-link" style="width: 184px; transform: rotate(12.5deg)"></i>
@@ -297,471 +347,787 @@ onBeforeUnmount(() => {
             <i class="graph-node" style="left: 300px; top: 225px; --d: -4.2s"></i>
             <i class="graph-node graph-node--sm" style="left: 180px; top: 30px; --d: -5s"></i>
             <span class="graph-core">
-              <AppIcon name="network" :size="26" :stroke-width="1.4" />
+              <AppIcon name="network" :size="24" :stroke-width="1.4" />
             </span>
           </div>
+        </div>
+      </div>
+    </section>
 
-          <!-- AI Engine — a core breathing light, tokens rising. -->
-          <div
-            v-else-if="current.key === 'engine'"
-            class="pp-visual visual-engine"
-            aria-hidden="true"
-          >
-            <i v-for="n in 14" :key="n" class="engine-particle" :style="{ '--i': n }"></i>
-            <span class="engine-halo"></span>
-            <span class="engine-core">
-              <AppIcon name="cpu" :size="44" :stroke-width="1.1" />
-            </span>
-          </div>
-
-          <!-- Roadmap — the story so far, laid on one line of light. -->
-          <div
-            v-else-if="current.key === 'roadmap'"
-            class="pp-visual visual-roadmap"
-            aria-hidden="true"
-          >
-            <i class="roadmap-track"></i>
-            <div
-              v-for="stop in roadmapStops"
-              :key="stop.label"
-              class="roadmap-stop"
-              :class="{ 'is-soon': stop.soon }"
-            >
-              <i class="roadmap-dot"></i>
-              <span class="roadmap-label">{{ stop.label }}</span>
+    <!-- 6 · AI Engine — diagonal: streaming panel low-left, copy high-right. -->
+    <section class="pp-section pp-section--engine">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-grid pp-grid--flip pp-grid--engine">
+        <div class="pp-copy" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="cpu" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.engine.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.engine.line') }}</p>
+          <ul class="pp-points">
+            <li v-for="p in points('engine')" :key="p" class="pp-point">
+              <span class="point-icon" aria-hidden="true"><AppIcon name="check" :size="13" /></span>
+              {{ p }}
+            </li>
+          </ul>
+        </div>
+        <div class="pp-stage engine-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+          <i v-for="n in 12" :key="n" class="engine-particle" :style="{ '--i': n }"></i>
+          <span class="engine-halo"></span>
+          <span class="engine-core"><AppIcon name="cpu" :size="36" :stroke-width="1.1" /></span>
+          <div class="ui-window stream-window">
+            <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
+            <i class="skel" style="width: 88%"></i>
+            <i class="skel" style="width: 74%"></i>
+            <i class="skel" style="width: 80%"></i>
+            <div class="stream-tail">
+              <i class="skel" style="width: 38%"></i>
+              <i class="stream-caret"></i>
             </div>
           </div>
+        </div>
+      </div>
+    </section>
 
-          <h2 class="pp-title">{{ current.title }}</h2>
-          <p class="pp-line">{{ current.line }}</p>
-          <p v-if="index === 0" class="pp-hint">
-            <AppIcon name="chevron-down" size="sm" />
-            {{ t('landing.product.hint') }}
-          </p>
-        </article>
-      </Transition>
-    </div>
+    <!-- 7 · Roadmap — centered timeline of milestones. -->
+    <section class="pp-section pp-section--roadmap">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-center">
+        <div class="pp-copy pp-copy--center" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="route" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.roadmap.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.roadmap.line') }}</p>
+        </div>
+        <div class="pp-stage roadmap-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+          <i class="roadmap-track"></i>
+          <div
+            v-for="stop in roadmapStops"
+            :key="stop.label"
+            class="roadmap-stop"
+            :class="{ 'is-soon': stop.soon }"
+          >
+            <i class="roadmap-dot"></i>
+            <span class="roadmap-label">{{ stop.label }}</span>
+            <span v-if="stop.soon" class="roadmap-soon">{{
+              t('landing.product.slides.roadmap.soon')
+            }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
 
-    <div class="presentation-beads">
+    <!-- 8 · Coming Soon — minimal ending, large type over one soft bloom. -->
+    <section class="pp-section pp-section--coming">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+      </div>
+      <div class="pp-center">
+        <span class="coming-orb" aria-hidden="true"><AppIcon name="sparkles" :size="26" /></span>
+        <h2 class="pp-title pp-title--coming" data-reveal>
+          {{ t('landing.product.slides.coming.title') }}
+        </h2>
+        <p class="pp-sub" data-reveal style="--reveal-delay: 140ms">
+          {{ t('landing.product.slides.coming.line') }}
+        </p>
+      </div>
+    </section>
+
+    <nav class="pp-nav" :aria-label="t('landing.product.nav')">
       <button
-        v-for="(slide, i) in slides"
-        :key="slide.key"
+        v-for="(item, i) in navItems"
+        :key="SECTIONS[i]"
         type="button"
-        class="bead"
-        :class="{ active: i === index }"
-        :aria-label="slide.title"
-        :aria-current="i === index || undefined"
+        class="pp-nav-dot"
+        :class="{ active: i === activeIndex }"
+        :aria-label="item"
+        :aria-current="i === activeIndex || undefined"
         @click="goTo(i)"
       ></button>
-    </div>
-
-    <span class="visually-hidden" aria-live="polite">{{ announcement }}</span>
+    </nav>
   </section>
 </template>
 
 <style scoped>
 /*
- * The gallery layer. Phase 11 makes this the one colorful room in the
- * project, so the base is opaque — each slide's atmosphere paints the whole
- * frame. Sits below the dock (which keeps floating above, refracting the
- * atmospheres) and above everything else on the stage.
+ * The bright room. Fixed full-screen layer under the dock (z 40 vs 50),
+ * but unlike the keynote it is a real scroll container: native wheel,
+ * touch and keyboard scrolling with gentle snap. The dark stage never
+ * shows through — the first paint is already warm white.
  */
 .presentation {
   position: fixed;
   inset: 0;
   z-index: 40;
-  display: flex;
-  background: #030208;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scroll-snap-type: y proximity;
+  background: #fbfaff;
   outline: none;
-  /* All vertical gestures belong to the deck. */
-  touch-action: none;
+
+  /* Dark ink on light air — the inverse of the stage's dusk system. */
+  --pp-ink: #211c44;
+  --pp-ink-2: rgba(33, 28, 68, 0.64);
+  --pp-ink-3: rgba(33, 28, 68, 0.42);
+  --pp-line: rgba(33, 28, 68, 0.08);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .presentation {
+    scroll-behavior: smooth;
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* Atmospheres — full-bleed mesh-gradient color fields, one per slide  */
+/* Sections — one atmosphere each, never dark, never empty             */
 /* ------------------------------------------------------------------ */
 
-.atmosphere {
-  position: absolute;
-  inset: 0;
+.pp-section {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 96px clamp(24px, 7vw, 96px) 150px;
   overflow: hidden;
+  scroll-snap-align: start;
+  background: var(--sec-base);
 }
 
-.atmo {
+.sec-atmo {
   position: absolute;
   inset: 0;
-  background: var(--atmo-base);
+  pointer-events: none;
 }
 
-/* Three soft light masses per field, drifting on the Phase 9 underlight
-   paths (30–60s, transform only) so no two slides ever feel synchronized. */
-.atmo-blob {
+/* Large blurred color fields drifting on the Phase 9 underlight paths —
+   the same gesture as the dark atmospheres, re-lit in pastel. */
+.sec-blob {
   position: absolute;
-  width: 78vmax;
+  width: 70vmax;
   aspect-ratio: 1;
   border-radius: 50%;
 }
 
-.atmo-blob--a {
-  top: -32%;
-  left: -22%;
-  background: radial-gradient(circle, var(--atmo-a), transparent 66%);
-  animation: app-underlight-a 44s var(--ease-in-out) infinite alternate;
+.sec-blob--a {
+  top: -30%;
+  left: -20%;
+  background: radial-gradient(circle, var(--blob-a), transparent 64%);
+  animation: app-underlight-a 46s var(--ease-in-out) infinite alternate;
 }
 
-.atmo-blob--b {
-  top: -18%;
-  right: -26%;
-  background: radial-gradient(circle, var(--atmo-b), transparent 66%);
-  animation: app-underlight-b 56s var(--ease-in-out) infinite alternate;
+.sec-blob--b {
+  top: -16%;
+  right: -24%;
+  background: radial-gradient(circle, var(--blob-b), transparent 64%);
+  animation: app-underlight-b 58s var(--ease-in-out) infinite alternate;
 }
 
-.atmo-blob--c {
-  bottom: -36%;
-  left: 14%;
-  background: radial-gradient(circle, var(--atmo-c), transparent 66%);
-  animation: app-underlight-c 38s var(--ease-in-out) infinite alternate;
+.sec-blob--c {
+  bottom: -32%;
+  left: 12%;
+  background: radial-gradient(circle, var(--blob-c), transparent 64%);
+  animation: app-underlight-c 40s var(--ease-in-out) infinite alternate;
 }
 
-/* Hero only: a glass reflection — one wide highlight band slowly crossing
-   the field, the same optical gesture as GlassSurface's surfaceFlow. */
-.atmo-sheen {
-  position: absolute;
-  top: -25%;
-  bottom: -25%;
-  left: 0;
-  width: 30%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.05), transparent);
-  animation: app-glass-flow 42s linear infinite;
+/* The eight atmospheres — every section owns its own light. */
+.pp-section--hero {
+  --sec-base: linear-gradient(180deg, #fdfcff, #f4f0ff);
+  --blob-a: rgba(150, 115, 255, 0.18);
+  --blob-b: rgba(255, 130, 195, 0.14);
+  --blob-c: rgba(95, 155, 255, 0.13);
+  --sec-accent: #6d4aff;
 }
 
-/* The eight rooms. Every base stays deep enough for the fixed dusk type. */
-.atmo--hero {
-  --atmo-base: linear-gradient(180deg, #150a2e, #07040f);
-  --atmo-a: rgba(147, 90, 255, 0.4);
-  --atmo-b: rgba(255, 110, 180, 0.3);
-  --atmo-c: rgba(80, 140, 255, 0.26);
+.pp-section--tutor {
+  --sec-base: linear-gradient(180deg, #f4f8ff, #e9f2ff);
+  --blob-a: rgba(90, 150, 255, 0.2);
+  --blob-b: rgba(80, 210, 255, 0.14);
+  --blob-c: rgba(140, 120, 255, 0.1);
+  --sec-accent: #2563eb;
+  --sec-accent-2: #4f8cff;
 }
 
-.atmo--tutor {
-  --atmo-base: linear-gradient(180deg, #061a3e, #040914);
-  --atmo-a: rgba(64, 140, 255, 0.36);
-  --atmo-b: rgba(70, 215, 255, 0.22);
-  --atmo-c: rgba(120, 100, 255, 0.2);
+.pp-section--notes {
+  --sec-base: linear-gradient(180deg, #fffaf2, #fdf1e0);
+  --blob-a: rgba(255, 180, 90, 0.2);
+  --blob-b: rgba(255, 130, 110, 0.13);
+  --blob-c: rgba(255, 220, 150, 0.16);
+  --sec-accent: #d97706;
+  --sec-accent-2: #f59e0b;
 }
 
-.atmo--notes {
-  --atmo-base: linear-gradient(180deg, #2a1606, #140a03);
-  --atmo-a: rgba(255, 170, 70, 0.3);
-  --atmo-b: rgba(255, 110, 90, 0.22);
-  --atmo-c: rgba(255, 220, 150, 0.14);
+.pp-section--flashcards {
+  --sec-base: linear-gradient(180deg, #fbf6ff, #f2eaff);
+  --blob-a: rgba(200, 120, 255, 0.16);
+  --blob-b: rgba(255, 120, 190, 0.13);
+  --blob-c: rgba(150, 130, 255, 0.13);
+  --sec-accent: #9333ea;
+  --sec-accent-2: #c04ae2;
 }
 
-.atmo--flashcards {
-  --atmo-base: linear-gradient(180deg, #260a24, #11040f);
-  --atmo-a: rgba(255, 90, 180, 0.3);
-  --atmo-b: rgba(180, 90, 255, 0.26);
-  --atmo-c: rgba(255, 150, 120, 0.16);
+.pp-section--graph {
+  --sec-base: linear-gradient(180deg, #f2fbf8, #e6f6f0);
+  --blob-a: rgba(45, 212, 175, 0.18);
+  --blob-b: rgba(70, 200, 255, 0.12);
+  --blob-c: rgba(130, 255, 205, 0.14);
+  --sec-accent: #0d9488;
+  --sec-accent-2: #14b8a6;
 }
 
-.atmo--graph {
-  --atmo-base: linear-gradient(180deg, #04231e, #02100e);
-  --atmo-a: rgba(40, 220, 180, 0.28);
-  --atmo-b: rgba(60, 200, 255, 0.22);
-  --atmo-c: rgba(120, 255, 200, 0.13);
+.pp-section--engine {
+  --sec-base: linear-gradient(180deg, #f6f5ff, #ecebff);
+  --blob-a: rgba(120, 95, 255, 0.18);
+  --blob-b: rgba(70, 170, 255, 0.13);
+  --blob-c: rgba(200, 120, 255, 0.12);
+  --sec-accent: #6d28d9;
+  --sec-accent-2: #7c5cff;
 }
 
-.atmo--engine {
-  --atmo-base: linear-gradient(180deg, #120d33, #060414);
-  --atmo-a: rgba(110, 90, 255, 0.36);
-  --atmo-b: rgba(60, 170, 255, 0.26);
-  --atmo-c: rgba(200, 110, 255, 0.2);
+.pp-section--roadmap {
+  --sec-base: linear-gradient(180deg, #fffdf6, #fbf4e4);
+  --blob-a: rgba(255, 195, 110, 0.2);
+  --blob-b: rgba(255, 150, 105, 0.12);
+  --blob-c: rgba(255, 235, 180, 0.2);
+  --sec-accent: #d97706;
 }
 
-/* "Warm white" from the brief, rendered as warm dawn: unmistakably warm,
-   still deep enough for the fixed light typography. */
-.atmo--roadmap {
-  --atmo-base: linear-gradient(180deg, #241206, #100704);
-  --atmo-a: rgba(255, 190, 120, 0.3);
-  --atmo-b: rgba(255, 140, 100, 0.2);
-  --atmo-c: rgba(255, 235, 190, 0.15);
-}
-
-/* The ending: minimal, one distant bloom — never pure black. */
-.atmo--coming {
-  --atmo-base: linear-gradient(180deg, #0c0719, #04030a);
-  --atmo-a: rgba(140, 110, 255, 0.22);
-  --atmo-b: rgba(255, 130, 200, 0.08);
-  --atmo-c: rgba(90, 120, 255, 0.06);
-}
-
-/* Light moves slower than glass: the color field cross-fades over 1.6s
-   while the content above refocuses in 1s. Both layers are absolutely
-   positioned, so enter and leave overlap into a true dissolve. */
-.atmo-enter-active,
-.atmo-leave-active {
-  transition: opacity 1600ms var(--ease-out);
-}
-
-.atmo-enter-from,
-.atmo-leave-to {
-  opacity: 0;
+.pp-section--coming {
+  --sec-base: linear-gradient(180deg, #f9f8ff, #efecfc);
+  --blob-a: rgba(150, 120, 255, 0.2);
+  --sec-accent: #6d4aff;
 }
 
 /* ------------------------------------------------------------------ */
-/* Slides                                                              */
+/* Type — premium scale, dark ink, generous air                        */
 /* ------------------------------------------------------------------ */
 
-.presentation-viewport {
-  position: relative;
-  flex: 1;
-  overflow: hidden;
-}
-
-/*
- * One slide = one viewport. Content is biased upward so it breathes above
- * the persistent dock instead of colliding with it; the atmosphere still
- * runs the full frame underneath the glass.
- */
-.pp-slide {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-4);
-  padding: var(--space-8);
-  padding-bottom: 148px;
-  text-align: center;
-}
-
-/* Keynote typography — hero scale, confident weight, almost no words. The
-   palette stays the fixed dusk of the stage (every atmosphere is deep). */
 .pp-title {
   margin: 0;
   font-family: var(--font-headline-family);
-  font-size: clamp(2.5rem, 5.5vw, 4.4rem);
+  font-size: clamp(2.3rem, 4.2vw, 3.8rem);
   font-weight: 680;
-  line-height: 1.08;
+  line-height: 1.06;
   letter-spacing: var(--font-headline-tracking);
-  color: rgba(248, 246, 255, 0.97);
+  color: var(--pp-ink);
 }
 
-/* Hero headline — the product name poured in light. */
-.pp-slide--hero .pp-title {
-  font-size: clamp(3rem, 8vw, 6.4rem);
-  background: linear-gradient(100deg, #ffffff 8%, #cabcff 38%, #ff9ed8 66%, #93b8ff 95%);
+/* The hero headline — the product name poured in saturated light. */
+.pp-title--hero {
+  font-size: clamp(3rem, 7.5vw, 6.2rem);
+  background: linear-gradient(96deg, #5b3df0 4%, #b833b8 40%, #e8467c 66%, #2563eb 96%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   -webkit-text-fill-color: transparent;
 }
 
-.pp-slide--coming .pp-title {
-  font-size: clamp(2.8rem, 7vw, 5.6rem);
-  text-shadow: 0 0 60px rgba(150, 120, 255, 0.35);
+.pp-title--coming {
+  font-size: clamp(2.7rem, 6.4vw, 5.2rem);
 }
 
-.pp-line {
-  margin: 0;
-  max-width: 44ch;
-  font-size: clamp(1.05rem, 1.8vw, 1.35rem);
+.pp-sub {
+  margin: var(--space-4) 0 0;
+  max-width: 42ch;
+  font-size: clamp(1.05rem, 1.6vw, 1.3rem);
   line-height: 1.6;
-  color: rgba(240, 237, 252, 0.72);
+  color: var(--pp-ink-2);
+}
+
+.pp-sub--hero {
+  margin-inline: auto;
+  font-size: clamp(1.15rem, 2vw, 1.5rem);
 }
 
 .pp-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-6) 0 0;
+  margin: var(--space-8) 0 0;
   font-size: var(--text-xs);
-  color: rgba(240, 237, 252, 0.45);
+  color: var(--pp-ink-3);
+}
+
+.pp-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  margin-bottom: var(--space-5);
+  border-radius: 15px;
+  background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2, var(--sec-accent)));
+  color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 30px -12px color-mix(in srgb, var(--sec-accent) 55%, transparent);
+}
+
+.pp-points {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-6) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pp-point {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: 1rem;
+  color: var(--pp-ink-2);
+}
+
+.point-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--sec-accent) 14%, transparent);
+  color: var(--sec-accent);
 }
 
 /* ------------------------------------------------------------------ */
-/* Visual compositions — CSS only, one per feature slide               */
+/* Layout — alternating compositions                                   */
 /* ------------------------------------------------------------------ */
 
-.pp-visual {
+.pp-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  align-items: center;
+  gap: clamp(40px, 6vw, 96px);
+  width: min(1160px, 100%);
+  margin-inline: auto;
+}
+
+.pp-grid--flip .pp-copy {
+  order: 2;
+}
+
+.pp-grid--flip .pp-stage {
+  order: 1;
+}
+
+/* Engine's diagonal: the visual sits low, the copy rides high. */
+.pp-grid--engine .pp-stage {
+  translate: 0 34px;
+}
+
+.pp-grid--engine .pp-copy {
+  translate: 0 -26px;
+}
+
+.pp-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: min(880px, 100%);
+  margin-inline: auto;
+  text-align: center;
+}
+
+.pp-copy--center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.hero-inner {
   position: relative;
-  width: min(640px, 90vw);
-  height: clamp(200px, 30vh, 290px);
-  margin-bottom: var(--space-4);
+  width: min(980px, 100%);
+  text-align: center;
 }
 
-/* Shared floating pane: the dock's optical family without any filter —
-   smoked translucency, bright entrance lip, chromatic rims, deep shadow. */
-.pp-card {
+.pp-stage {
+  position: relative;
+  width: 100%;
+  min-height: 320px;
+}
+
+/* ------------------------------------------------------------------ */
+/* Shared UI-mockup vocabulary — white windows, soft depth             */
+/* ------------------------------------------------------------------ */
+
+.ui-window {
   position: absolute;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   padding: var(--space-4);
+  border: 1px solid var(--pp-line);
   border-radius: 20px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: linear-gradient(to bottom, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04));
+  background: #ffffff;
   box-shadow:
-    0 34px 60px -30px rgba(0, 0, 0, 0.6),
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 1px 1px 0 rgba(150, 216, 255, 0.06),
-    inset -1px -1px 0 rgba(255, 188, 150, 0.06);
+    0 32px 70px -28px rgba(33, 28, 68, 0.28),
+    0 4px 14px rgba(33, 28, 68, 0.05);
+}
+
+.ui-titlebar {
+  display: flex;
+  gap: 6px;
+}
+
+.ui-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(33, 28, 68, 0.14);
 }
 
 .skel {
   display: block;
   height: 8px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(33, 28, 68, 0.12);
 }
 
-/* Tutor — question, answer, and an older exchange sinking into depth.
-   NOTE: static pose uses the individual `rotate`/`translate`/`scale`
-   properties throughout these compositions — app-float animates `transform`
-   and would silently replace a static transform, un-rotating the card. */
-.tutor-card--question {
-  top: 6%;
-  left: 4%;
-  width: 200px;
-  rotate: -2deg;
-  animation: app-float 9s var(--ease-in-out) infinite alternate;
+.skel--title {
+  height: 12px;
+  border-radius: 6px;
+  background: rgba(33, 28, 68, 0.22);
 }
 
-.tutor-card--answer {
-  top: 20%;
-  right: 6%;
-  width: 264px;
-  rotate: 1.5deg;
-  animation: app-float 11s var(--ease-in-out) -3s infinite alternate;
+.skel--accent {
+  background: color-mix(in srgb, var(--sec-accent) 35%, transparent);
 }
 
-.tutor-card--echo {
-  bottom: 4%;
-  left: 16%;
-  width: 170px;
-  opacity: 0.5;
-  filter: blur(1px);
-  animation: app-float 13s var(--ease-in-out) -6s infinite alternate;
+.skel--onprimary {
+  background: rgba(255, 255, 255, 0.55);
 }
 
-.tutor-badge {
+.skel--chip {
+  height: 6px;
+}
+
+/* Floating accessories share the window skin at chip scale. */
+.float-chip {
+  position: absolute;
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, rgba(90, 160, 255, 0.9), rgba(120, 100, 255, 0.9));
-  box-shadow: 0 0 18px rgba(90, 150, 255, 0.5);
-  color: rgba(255, 255, 255, 0.95);
+  gap: var(--space-2);
+  padding: 10px 14px;
+  border: 1px solid var(--pp-line);
+  border-radius: var(--radius-full);
+  background: #ffffff;
+  box-shadow: 0 18px 40px -18px rgba(33, 28, 68, 0.3);
+  color: var(--sec-accent);
 }
 
-/* Notes — three tinted snippets, connected by faint threads. */
-.note-card {
+.float-panel {
+  position: absolute;
+}
+
+/* ------------------------------------------------------------------ */
+/* Hero composition — two soft app previews behind the headline        */
+/* ------------------------------------------------------------------ */
+
+.hero-cards {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hero-card {
   width: 190px;
+  opacity: 0.85;
 }
 
-.note-card--amber {
-  top: 8%;
-  left: 6%;
-  rotate: -5deg;
-  background: linear-gradient(to bottom, rgba(255, 176, 80, 0.24), rgba(255, 176, 80, 0.06));
-  animation: app-float 10s var(--ease-in-out) infinite alternate;
+.hero-card--chat {
+  left: 0;
+  top: -34px;
+  rotate: -6deg;
+  animation: app-float 11s var(--ease-in-out) infinite alternate;
 }
 
-.note-card--rose {
-  top: 2%;
-  right: 8%;
-  rotate: 3deg;
-  background: linear-gradient(to bottom, rgba(255, 110, 150, 0.24), rgba(255, 110, 150, 0.06));
-  animation: app-float 12s var(--ease-in-out) -4s infinite alternate;
+.hero-card--graph {
+  right: 0;
+  bottom: -50px;
+  height: 120px;
+  rotate: 4deg;
+  animation: app-float 13s var(--ease-in-out) -5s infinite alternate;
 }
 
-.note-card--violet {
-  bottom: 4%;
-  left: 34%;
-  width: 170px;
-  rotate: -1deg;
-  background: linear-gradient(to bottom, rgba(160, 120, 255, 0.24), rgba(160, 120, 255, 0.06));
-  animation: app-float 11s var(--ease-in-out) -7s infinite alternate;
-}
-
-.note-dot {
+.hero-node {
+  position: absolute;
   width: 10px;
   height: 10px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 12px rgba(255, 255, 255, 0.45);
+  background: var(--sec-accent);
+  opacity: 0.75;
 }
 
-.notes-thread {
+.hero-edge {
   position: absolute;
   height: 1.5px;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+  background: color-mix(in srgb, var(--sec-accent) 30%, transparent);
   transform-origin: 0 50%;
 }
 
-.notes-thread--a {
-  left: 26%;
-  top: 34%;
-  width: 42%;
-  transform: rotate(8deg);
+/* ------------------------------------------------------------------ */
+/* Tutor — a real conversation window with floating suggestions        */
+/* ------------------------------------------------------------------ */
+
+.chat-window {
+  left: 6%;
+  top: 0;
+  width: min(420px, 88%);
+  animation: app-float 12s var(--ease-in-out) infinite alternate;
 }
 
-.notes-thread--b {
-  left: 44%;
-  top: 46%;
-  width: 34%;
-  transform: rotate(-32deg);
-}
-
-/* Flashcards — a deck at rest: two echoes behind, one card in the light. */
-.visual-stack {
+.chat-body {
   display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-/* Centred by geometry (262×158), not by transform — the front card's float
-   animation owns `transform` outright. */
-.stack-card {
-  left: calc(50% - 131px);
-  top: calc(50% - 79px);
-  width: 262px;
-  height: 158px;
+.chat-bubble {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+}
+
+.chat-bubble--user {
+  flex-direction: column;
+  align-self: flex-end;
+  width: 58%;
+  background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2));
+  box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--sec-accent) 60%, transparent);
+}
+
+.chat-bubble--ai {
+  align-items: flex-start;
+  width: 86%;
+  background: rgba(33, 28, 68, 0.045);
+}
+
+.chat-badge {
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2));
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.chat-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  padding-top: 4px;
+}
+
+.float-chip--a {
+  right: 2%;
+  top: 8%;
+  rotate: 2deg;
+  animation: app-float 10s var(--ease-in-out) -3s infinite alternate;
+}
+
+.float-chip--b {
+  right: 10%;
+  top: 32%;
+  rotate: -2deg;
+  animation: app-float 13s var(--ease-in-out) -7s infinite alternate;
+}
+
+.timeline-panel {
+  left: 0;
+  bottom: -6%;
+  width: 200px;
+  gap: 10px;
+  rotate: -2deg;
+  animation: app-float 14s var(--ease-in-out) -9s infinite alternate;
+}
+
+.tl-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tl-row .skel {
+  flex: 1;
+  max-width: 68%;
+}
+
+.tl-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--sec-accent) 45%, transparent);
+}
+
+.tl-dot--now {
+  background: var(--sec-accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--sec-accent) 18%, transparent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Notes — an editor window, a code panel, an AI chip                  */
+/* ------------------------------------------------------------------ */
+
+.note-window {
+  left: 4%;
+  top: 0;
+  width: min(400px, 86%);
+  animation: app-float 12s var(--ease-in-out) infinite alternate;
+}
+
+.note-image {
+  height: 74px;
+  border-radius: 12px;
+  background: linear-gradient(
+    120deg,
+    color-mix(in srgb, var(--sec-accent) 30%, #fff),
+    color-mix(in srgb, #e8467c 22%, #fff)
+  );
+}
+
+/* One small dark pane is allowed in the bright room: code reads as code. */
+.code-panel {
+  right: 0;
+  top: 16%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 210px;
+  padding: var(--space-4);
+  border-radius: 16px;
+  background: #241f3f;
+  box-shadow: 0 28px 60px -24px rgba(33, 28, 68, 0.5);
+  rotate: 3deg;
+  animation: app-float 13s var(--ease-in-out) -4s infinite alternate;
+}
+
+.code-line {
+  display: flex;
+  gap: 8px;
+}
+
+.code-tok {
+  height: 7px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.code-tok--violet {
+  background: rgba(170, 140, 255, 0.85);
+}
+
+.code-tok--rose {
+  background: rgba(255, 130, 175, 0.8);
+}
+
+.code-tok--cyan {
+  background: rgba(110, 220, 255, 0.8);
+}
+
+.code-tok--amber {
+  background: rgba(255, 200, 110, 0.85);
+}
+
+.float-chip--note {
+  right: 14%;
+  bottom: 2%;
+  rotate: -3deg;
+  animation: app-float 11s var(--ease-in-out) -6s infinite alternate;
+}
+
+/* ------------------------------------------------------------------ */
+/* Flashcards — the deck in depth, now resting in daylight             */
+/* ------------------------------------------------------------------ */
+
+.stack-stage {
+  min-height: 280px;
+  margin-top: var(--space-8);
+  max-width: 560px;
+}
+
+/* Centred by geometry, never by transform — the front card's float
+   animation owns `transform` outright (the Phase 11 clobbering rule). */
+.stack-card {
+  left: calc(50% - 131px);
+  top: calc(50% - 90px);
+  width: 262px;
+  height: 156px;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
   border-radius: 22px;
-  color: rgba(248, 246, 255, 0.92);
+  color: var(--pp-ink);
 }
 
 .stack-card--far {
-  translate: 0 -46px;
+  translate: 0 -44px;
   scale: 0.85;
-  opacity: 0.32;
+  opacity: 0.45;
 }
 
 .stack-card--mid {
-  translate: 0 -23px;
+  translate: 0 -22px;
   scale: 0.93;
-  opacity: 0.58;
+  opacity: 0.7;
 }
 
 .stack-card--front {
-  gap: var(--space-3);
-  background: linear-gradient(to bottom, rgba(255, 130, 190, 0.2), rgba(160, 100, 255, 0.1));
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--sec-accent) 14%, #fff),
+    color-mix(in srgb, var(--sec-accent-2) 22%, #fff)
+  );
+  color: var(--sec-accent);
   animation: app-float 10s var(--ease-in-out) infinite alternate;
 }
 
 .stack-card--front .skel {
-  width: 54%;
+  width: 52%;
+  background: color-mix(in srgb, var(--sec-accent) 30%, transparent);
 }
 
-/* Knowledge Graph — a 480×260 constellation; links radiate from the core
-   (all origin at its centre, rotated to each node) plus outer ties. */
-.visual-graph {
+.stack-progress {
+  position: absolute;
+  left: calc(50% - 24px);
+  bottom: 0;
+  display: flex;
+  gap: 8px;
+}
+
+.progress-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(33, 28, 68, 0.15);
+}
+
+.progress-dot.is-done {
+  background: var(--sec-accent);
+}
+
+/* ------------------------------------------------------------------ */
+/* Knowledge Graph — the constellation, re-lit for daylight            */
+/* ------------------------------------------------------------------ */
+
+.graph-field {
+  position: relative;
   width: 480px;
+  max-width: 100%;
   height: 260px;
-  flex-shrink: 0;
+  margin-inline: auto;
 }
 
 .graph-link {
@@ -769,12 +1135,20 @@ onBeforeUnmount(() => {
   left: 240px;
   top: 130px;
   height: 1.5px;
-  background: linear-gradient(90deg, rgba(120, 255, 220, 0.45), rgba(120, 255, 220, 0.08));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sec-accent) 45%, transparent),
+    color-mix(in srgb, var(--sec-accent) 8%, transparent)
+  );
   transform-origin: 0 50%;
 }
 
 .graph-link--outer {
-  background: linear-gradient(90deg, rgba(120, 220, 255, 0.25), rgba(120, 220, 255, 0.05));
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sec-accent-2) 30%, transparent),
+    color-mix(in srgb, var(--sec-accent-2) 6%, transparent)
+  );
 }
 
 .graph-node {
@@ -782,10 +1156,10 @@ onBeforeUnmount(() => {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  background: rgba(150, 255, 225, 0.95);
+  background: var(--sec-accent-2);
   box-shadow:
-    0 0 14px rgba(90, 240, 200, 0.75),
-    0 0 42px rgba(90, 240, 200, 0.3);
+    0 0 0 5px color-mix(in srgb, var(--sec-accent-2) 16%, transparent),
+    0 8px 20px -6px color-mix(in srgb, var(--sec-accent) 55%, transparent);
   transform: translate(-50%, -50%);
   animation: pp-node-pulse 5s var(--ease-in-out) var(--d, 0s) infinite alternate;
 }
@@ -802,19 +1176,19 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: 62px;
+  height: 62px;
   border-radius: 50%;
-  border: 1px solid rgba(160, 255, 230, 0.4);
-  background: radial-gradient(circle, rgba(40, 220, 180, 0.28), rgba(40, 220, 180, 0.05) 70%);
-  box-shadow: 0 0 40px rgba(60, 230, 190, 0.4);
+  border: 1px solid color-mix(in srgb, var(--sec-accent) 30%, transparent);
+  background: #ffffff;
+  box-shadow: 0 22px 50px -18px color-mix(in srgb, var(--sec-accent) 60%, transparent);
   transform: translate(-50%, -50%);
-  color: rgba(210, 255, 240, 0.95);
+  color: var(--sec-accent);
 }
 
 @keyframes pp-node-pulse {
   from {
-    opacity: 0.55;
+    opacity: 0.6;
     transform: translate(-50%, -50%) scale(0.85);
   }
   to {
@@ -823,60 +1197,92 @@ onBeforeUnmount(() => {
   }
 }
 
-/* AI Engine — a breathing core; tokens rise through the field like sparks. */
-.visual-engine {
+/* ------------------------------------------------------------------ */
+/* AI Engine — a streaming response beside a breathing core            */
+/* ------------------------------------------------------------------ */
+
+.engine-stage {
+  min-height: 360px;
+}
+
+.stream-window {
+  right: 4%;
+  bottom: 6%;
+  width: min(360px, 80%);
+  rotate: -2deg;
+  animation: app-float 12s var(--ease-in-out) infinite alternate;
+}
+
+.stream-tail {
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 8px;
+}
+
+.stream-caret {
+  width: 8px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--sec-accent);
+  animation: pp-caret 1.1s steps(2, start) infinite;
+}
+
+@keyframes pp-caret {
+  to {
+    opacity: 0;
+  }
 }
 
 .engine-core {
-  position: relative;
+  position: absolute;
+  left: 10%;
+  top: 8%;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 112px;
-  height: 112px;
-  border-radius: 32px;
-  border: 1px solid rgba(190, 170, 255, 0.45);
-  background: linear-gradient(to bottom, rgba(140, 110, 255, 0.24), rgba(140, 110, 255, 0.06));
-  box-shadow:
-    0 0 50px rgba(130, 100, 255, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.25);
-  color: rgba(235, 228, 255, 0.95);
+  width: 96px;
+  height: 96px;
+  border-radius: 28px;
+  border: 1px solid color-mix(in srgb, var(--sec-accent) 25%, transparent);
+  background: #ffffff;
+  box-shadow: 0 26px 60px -22px color-mix(in srgb, var(--sec-accent) 65%, transparent);
+  color: var(--sec-accent);
 }
 
 .engine-halo {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 220px;
-  height: 220px;
+  left: calc(10% + 48px - 105px);
+  top: calc(8% + 48px - 105px);
+  width: 210px;
+  height: 210px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(140, 110, 255, 0.3), transparent 70%);
-  transform: translate(-50%, -50%);
+  background: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--sec-accent) 18%, transparent),
+    transparent 70%
+  );
   animation: pp-halo 6s var(--ease-in-out) infinite alternate;
 }
 
 @keyframes pp-halo {
   from {
     opacity: 0.55;
-    transform: translate(-50%, -50%) scale(0.9);
+    transform: scale(0.9);
   }
   to {
     opacity: 1;
-    transform: translate(-50%, -50%) scale(1.15);
+    transform: scale(1.15);
   }
 }
 
 .engine-particle {
   position: absolute;
-  left: calc(3% + var(--i) * 6.7%);
-  bottom: 6%;
+  left: calc(6% + var(--i) * 7.4%);
+  bottom: 4%;
   width: 4px;
   height: 4px;
   border-radius: 50%;
-  background: rgba(180, 160, 255, 0.85);
+  background: color-mix(in srgb, var(--sec-accent) 55%, transparent);
   opacity: 0;
   animation: pp-rise calc(5.5s + var(--i) * 0.35s) linear calc(var(--i) * -1.35s) infinite;
 }
@@ -884,7 +1290,7 @@ onBeforeUnmount(() => {
 .engine-particle:nth-child(even) {
   width: 3px;
   height: 3px;
-  background: rgba(120, 190, 255, 0.8);
+  background: color-mix(in srgb, var(--sec-accent-2) 55%, transparent);
 }
 
 @keyframes pp-rise {
@@ -893,26 +1299,29 @@ onBeforeUnmount(() => {
     opacity: 0;
   }
   12% {
-    opacity: 0.75;
+    opacity: 0.7;
   }
   80% {
-    opacity: 0.25;
+    opacity: 0.2;
   }
   100% {
-    transform: translateY(-230px);
+    transform: translateY(-240px);
     opacity: 0;
   }
 }
 
-/* Roadmap — one line of light; the shipped chapters glow, the next pulses. */
-.visual-roadmap {
+/* ------------------------------------------------------------------ */
+/* Roadmap — milestones on one warm line                               */
+/* ------------------------------------------------------------------ */
+
+.roadmap-stage {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  width: min(680px, 88vw);
-  height: auto;
-  padding-top: 60px;
-  margin-bottom: var(--space-6);
+  width: min(720px, 92vw);
+  min-height: 0;
+  padding-top: 64px;
+  margin-top: var(--space-8);
   /* The line and its stops breathe as ONE object — dots never leave the track. */
   animation: app-float 14s var(--ease-in-out) infinite alternate;
 }
@@ -921,14 +1330,14 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 2%;
   right: 2%;
-  top: 67px;
-  height: 2px;
-  border-radius: 1px;
+  top: 71px;
+  height: 3px;
+  border-radius: 2px;
   background: linear-gradient(
     90deg,
-    rgba(255, 200, 140, 0.7),
-    rgba(255, 200, 140, 0.45) 62%,
-    rgba(255, 200, 140, 0.1)
+    var(--sec-accent),
+    color-mix(in srgb, var(--sec-accent) 55%, transparent) 62%,
+    color-mix(in srgb, var(--sec-accent) 12%, transparent)
   );
 }
 
@@ -941,27 +1350,25 @@ onBeforeUnmount(() => {
 }
 
 .roadmap-dot {
-  width: 16px;
-  height: 16px;
+  width: 17px;
+  height: 17px;
   border-radius: 50%;
-  background: rgba(255, 205, 150, 0.95);
-  box-shadow:
-    0 0 16px rgba(255, 185, 120, 0.7),
-    0 0 44px rgba(255, 185, 120, 0.3);
+  border: 3px solid #fffdf6;
+  background: var(--sec-accent);
+  box-shadow: 0 6px 16px -4px color-mix(in srgb, var(--sec-accent) 60%, transparent);
 }
 
 .roadmap-stop.is-soon .roadmap-dot {
-  background: transparent;
-  border: 2px solid rgba(255, 205, 150, 0.75);
-  box-shadow: 0 0 20px rgba(255, 185, 120, 0.4);
-  /* In-flow pulse — pp-node-pulse carries the graph nodes' centring
-     translate and would lift this dot off the track. */
+  background: #fffdf6;
+  border: 2.5px solid var(--sec-accent);
+  /* In-flow pulse — pp-node-pulse carries a centring translate and would
+     lift this dot off the track (the Phase 11 lesson). */
   animation: pp-soon-pulse 3.5s var(--ease-in-out) infinite alternate;
 }
 
 @keyframes pp-soon-pulse {
   from {
-    opacity: 0.55;
+    opacity: 0.6;
     transform: scale(0.88);
   }
   to {
@@ -973,117 +1380,158 @@ onBeforeUnmount(() => {
 .roadmap-label {
   max-width: 9em;
   font-size: var(--text-sm);
-  color: rgba(255, 240, 224, 0.8);
+  font-weight: 550;
+  color: var(--pp-ink-2);
+}
+
+.roadmap-soon {
+  padding: 3px 10px;
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--sec-accent) 14%, transparent);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--sec-accent);
 }
 
 /* ------------------------------------------------------------------ */
-/* Chrome + transitions                                                */
+/* Coming Soon — the quiet ending                                      */
 /* ------------------------------------------------------------------ */
 
-/* Bead rail — the deck's only chrome, resting at the right edge. */
-.presentation-beads {
-  position: absolute;
-  right: clamp(16px, 3vw, 40px);
+.coming-orb {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  margin-bottom: var(--space-6);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 32% 28%,
+    #ffffff,
+    color-mix(in srgb, var(--sec-accent) 16%, #fff)
+  );
+  box-shadow:
+    0 30px 70px -24px color-mix(in srgb, var(--sec-accent) 55%, transparent),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  color: var(--sec-accent);
+  animation: app-float 12s var(--ease-in-out) infinite alternate;
+}
+
+/* ------------------------------------------------------------------ */
+/* Section nav — quiet dots at the right edge                          */
+/* ------------------------------------------------------------------ */
+
+.pp-nav {
+  position: fixed;
+  right: clamp(14px, 2.5vw, 36px);
   top: 50%;
-  transform: translateY(-50%);
+  translate: 0 -50%;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
   align-items: center;
+  gap: 10px;
 }
 
-.bead {
-  width: 6px;
-  height: 6px;
+.pp-nav-dot {
+  width: 8px;
+  height: 8px;
   padding: 0;
   border: none;
   border-radius: var(--radius-full);
-  background: rgba(255, 255, 255, 0.28);
+  background: rgba(33, 28, 68, 0.2);
   cursor: pointer;
-  transition:
-    background-color 600ms var(--ease-out),
-    box-shadow 600ms var(--ease-out);
+  transition: background-color 500ms var(--ease-out);
 }
 
-.bead.active {
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 8px rgba(255, 255, 255, 0.45);
+.pp-nav-dot.active {
+  background: rgba(33, 28, 68, 0.85);
 }
 
-.bead:focus-visible {
+.pp-nav-dot:focus-visible {
   outline: var(--border-width-md) solid var(--color-focus-ring);
   outline-offset: 2px;
 }
 
-/*
- * Optical refocus at stage scale — the camera re-aims at the next exhibit:
- * defocus, slight vertical compression, a short drift opposite the travel.
- * Phase 11 slows it to ~1s (the atmosphere underneath dissolves over 1.6s,
- * so light always settles after the content). No overshoot; reduced motion
- * collapses it to an instant swap via the global override.
- */
-.refocus-next-enter-active,
-.refocus-next-leave-active,
-.refocus-prev-enter-active,
-.refocus-prev-leave-active {
-  transition:
-    opacity 1000ms var(--ease-out),
-    transform 1000ms var(--ease-out),
-    filter 1000ms var(--ease-out);
-}
+/* ------------------------------------------------------------------ */
+/* Responsive — the compositions stack, the air stays                  */
+/* ------------------------------------------------------------------ */
 
-.refocus-next-enter-from {
-  opacity: 0;
-  transform: translateY(64px) scaleY(0.98);
-  filter: blur(12px);
-}
-.refocus-next-leave-to {
-  opacity: 0;
-  transform: translateY(-50px) scaleY(0.97);
-  filter: blur(12px);
-}
-.refocus-prev-enter-from {
-  opacity: 0;
-  transform: translateY(-64px) scaleY(0.98);
-  filter: blur(12px);
-}
-.refocus-prev-leave-to {
-  opacity: 0;
-  transform: translateY(50px) scaleY(0.97);
-  filter: blur(12px);
-}
+@media (max-width: 980px) {
+  .pp-grid {
+    grid-template-columns: 1fr;
+    gap: var(--space-8);
+    justify-items: center;
+    text-align: center;
+  }
 
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+  /* Stacked flow always reads copy first, visual second. */
+  .pp-grid--flip .pp-copy {
+    order: 1;
+  }
+
+  .pp-grid--flip .pp-stage {
+    order: 2;
+  }
+
+  .pp-grid--engine .pp-copy,
+  .pp-grid--engine .pp-stage {
+    translate: 0 0;
+  }
+
+  .pp-copy {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .pp-stage {
+    max-width: 520px;
+  }
 }
 
 @media (max-width: 640px) {
-  .pp-slide {
-    padding: var(--space-6);
-    padding-bottom: 128px;
+  .pp-section {
+    padding: 80px var(--space-5) 132px;
   }
 
-  /* The compositions shrink as one object; their layout box is clipped by
-     the viewport wrapper, so the scaled artwork stays centred. */
-  .visual-tutor,
-  .visual-notes,
-  .visual-stack,
-  .visual-graph,
-  .visual-engine {
+  .hero-cards {
+    display: none;
+  }
+
+  .float-chip--a,
+  .float-chip--b,
+  .float-chip--note,
+  .timeline-panel {
+    display: none;
+  }
+
+  .code-panel {
+    right: 2%;
+    top: auto;
+    bottom: 0;
+    width: 170px;
+  }
+
+  .graph-field {
     transform: scale(0.72);
-    margin-block: -28px;
+    margin-block: -36px;
+  }
+
+  .engine-stage {
+    min-height: 300px;
+  }
+
+  .engine-core {
+    left: 4%;
+    top: 2%;
   }
 
   .roadmap-label {
     font-size: var(--text-xs);
+  }
+
+  .pp-nav {
+    right: 8px;
   }
 }
 </style>

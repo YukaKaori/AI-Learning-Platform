@@ -621,6 +621,7 @@ export default {
     },
     product: {
       label: '产品演示',
+      nav: '章节',
       hint: '滚动继续浏览',
       hero: {
         line: '让 AI 伴你学习每一步',
@@ -629,10 +630,16 @@ export default {
         tutor: {
           title: 'AI 导师',
           line: '随时提问，获得因材施教的即时解答',
+          p1: '因材施教的解答',
+          p2: '智能追问建议',
+          p3: '你的学习时间线',
         },
         notes: {
           title: 'AI 笔记',
           line: '专注记录，整理与润色交给 AI',
+          p1: '富文本、图片与代码',
+          p2: '边写边成形的结构',
+          p3: '一键 AI 润色',
         },
         flashcards: {
           title: '闪卡复习',
@@ -641,14 +648,25 @@ export default {
         graph: {
           title: '知识图谱',
           line: '看见知识之间的联系',
+          p1: '概念自动关联',
+          p2: '前置知识一目了然',
+          p3: '沿关联自由探索',
         },
         engine: {
           title: 'AI 引擎',
           line: '流式推理，逐字呈现',
+          p1: '逐字流式输出',
+          p2: '看得见的推理过程',
+          p3: '按任务编排模型',
         },
         roadmap: {
           title: '路线图',
           line: '一个持续进化的学习平台',
+          m1: 'AI 导师与笔记',
+          m2: '闪卡与图谱',
+          m3: '流式引擎',
+          m4: '协作与移动端',
+          soon: '下一步',
         },
         coming: {
           title: '敬请期待',

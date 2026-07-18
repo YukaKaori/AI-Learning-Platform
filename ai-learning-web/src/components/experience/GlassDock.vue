@@ -157,7 +157,9 @@ defineExpose({ focusItem })
   font-size: var(--text-sm);
   font-weight: 550;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.5);
+  /* Halo tokens, overridable from the stage: over the bright Product page
+     the labels flip to dark ink and the dark halo would read as smudge. */
+  text-shadow: 0 1px 10px var(--dock-halo, rgba(0, 0, 0, 0.5));
   cursor: pointer;
   transition:
     color 400ms var(--ease-out),
@@ -178,8 +180,8 @@ defineExpose({ focusItem })
 .dock-item.is-active {
   color: var(--on-glass-text);
   text-shadow:
-    0 1px 10px rgba(0, 0, 0, 0.5),
-    0 0 18px rgba(255, 255, 255, 0.38);
+    0 1px 10px var(--dock-halo, rgba(0, 0, 0, 0.5)),
+    0 0 18px var(--dock-halo-active, rgba(255, 255, 255, 0.38));
 }
 
 .dock-item:focus-visible {

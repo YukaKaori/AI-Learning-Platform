@@ -643,6 +643,7 @@ const enUS: typeof zhCN = {
     },
     product: {
       label: 'Product presentation',
+      nav: 'Sections',
       hint: 'Scroll to explore',
       hero: {
         line: 'Learn anything, with AI beside you',
@@ -651,10 +652,16 @@ const enUS: typeof zhCN = {
         tutor: {
           title: 'AI Tutor',
           line: 'Ask anything, get answers shaped to how you learn',
+          p1: 'Answers shaped to how you learn',
+          p2: 'Smart follow-up suggestions',
+          p3: 'A timeline of your learning',
         },
         notes: {
           title: 'AI Notes',
           line: 'You capture the thought — AI shapes the note',
+          p1: 'Rich text, images and code',
+          p2: 'Structure appears as you write',
+          p3: 'One-tap AI polish',
         },
         flashcards: {
           title: 'Flashcards',
@@ -663,14 +670,25 @@ const enUS: typeof zhCN = {
         graph: {
           title: 'Knowledge Graph',
           line: 'See how everything you learn connects',
+          p1: 'Concepts link themselves',
+          p2: 'Prerequisites at a glance',
+          p3: 'Explore by association',
         },
         engine: {
           title: 'AI Engine',
           line: 'Streaming reasoning, delivered token by token',
+          p1: 'Streaming, token by token',
+          p2: 'Reasoning you can watch',
+          p3: 'Models orchestrated per task',
         },
         roadmap: {
           title: 'Roadmap',
           line: 'A learning platform that keeps evolving',
+          m1: 'AI Tutor & Notes',
+          m2: 'Flashcards & Graph',
+          m3: 'Streaming Engine',
+          m4: 'Collaboration & Mobile',
+          soon: 'Next',
         },
         coming: {
           title: 'Coming Soon',
