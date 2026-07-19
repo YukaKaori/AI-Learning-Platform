@@ -2,34 +2,35 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppIcon from '../AppIcon.vue'
+import type { IconName } from '../icons/registry'
 import { useScrollReveal } from '@/composables/useScrollReveal'
 
 /**
- * Product page — a premium commercial product website (Phase 12).
+ * Product page — a premium AI SaaS landing page (Phase 13).
  *
- * Phase 11's dark keynote becomes a bright product site: the login stage
- * stays the black gallery, and opening Product steps into a completely
- * different world — warm whites, soft pastel atmospheres, real landing-page
- * compositions. The contrast is the point: dark → bright, art → product.
+ * Phase 12 made this layer a bright product website; Phase 13 makes it read
+ * like a real commercial product ready for launch. The page now tells a
+ * story instead of listing features:
  *
- * The paged keynote engine is retired. This layer is a NATIVE scroll
- * container with gentle CSS scroll-snap (`y proximity`): eight full-viewport
- * sections that scroll like apple.com, not like a slide deck. Sections
- * alternate composition — text left / visual right, flipped, centered,
- * a diagonal — and every visual is a CSS-only UI mockup (a conversation
- * window, a note editor with a code panel, a card stack in depth, a glowing
- * constellation, a streaming response, a milestone timeline). No WebGL, no
- * new dependencies, no GlassSurface here: the page keeps exactly two
- * displacement filters (sign-in slab + dock), and the dock floating above
- * finally refracts bright colored fields instead of darkness.
+ *   Vision      → hero: identity, headline, a realistic product window
+ *   Product     → tutor / notes / flashcards: real UI with real words
+ *   Experience  → graph / engine: labelled knowledge, visible reasoning
+ *   Trust       → principles + truthful metrics (no invented customers)
+ *   Future      → roadmap → a strong closing CTA (no more "coming soon")
  *
- * Motion stays subtle: slow scroll-reveals via the house `[data-reveal]`
- * vocabulary, gentle `app-float` loops, drifting atmosphere blobs. No
- * springs, no bounce. Reduced motion reveals everything immediately
- * (useScrollReveal) and the global override freezes the loops.
+ * Every mockup is still CSS-only DOM — but the skeleton bars are gone:
+ * conversations have questions, notes have sentences, cards have prompts,
+ * graph nodes have names, the engine shows its reasoning steps. All mockup
+ * copy is localized (zh-CN / en-US, parity-tested).
  *
- * Escape (or the dock's Login facet) returns to the sign-in gallery via
- * the `close` event, exactly as before.
+ * The architecture is unchanged from Phase 12: a fixed full-screen NATIVE
+ * scroll container (z 40, under the dock at 50) with gentle `y proximity`
+ * snap, per-section pastel atmospheres on the shared underlight keyframes,
+ * house `[data-reveal]` entrances, no springs, no WebGL, no GlassSurface
+ * here — the page keeps exactly two displacement filters (sign-in slab +
+ * dock). Escape (or the dock's Login facet) still exits via `close`; the
+ * CTA's "Start learning" button exits the same way — sign-in IS the
+ * product's front door.
  */
 
 const { t } = useI18n()
@@ -43,14 +44,17 @@ const SECTIONS = [
   'flashcards',
   'graph',
   'engine',
+  'trust',
   'roadmap',
-  'coming',
+  'cta',
 ] as const
 
 const navItems = computed(() =>
-  SECTIONS.map((key) =>
-    key === 'hero' ? t('app.name') : t(`landing.product.slides.${key}.title`),
-  ),
+  SECTIONS.map((key) => {
+    if (key === 'hero') return t('app.name')
+    if (key === 'cta') return t('landing.product.slides.cta.action')
+    return t(`landing.product.slides.${key}.title`)
+  }),
 )
 
 /** The three feature points shown beside a split section's headline. */
@@ -64,6 +68,37 @@ const roadmapStops = computed(() => [
   { label: t('landing.product.slides.roadmap.m3'), soon: false },
   { label: t('landing.product.slides.roadmap.m4'), soon: true },
 ])
+
+/** Product principles — the trust layer speaks philosophy, never fake logos. */
+const trustCards = computed<Array<{ icon: IconName; title: string; desc: string }>>(() => [
+  {
+    icon: 'graduation-cap',
+    title: t('landing.product.slides.trust.t1'),
+    desc: t('landing.product.slides.trust.d1'),
+  },
+  {
+    icon: 'brain',
+    title: t('landing.product.slides.trust.t2'),
+    desc: t('landing.product.slides.trust.d2'),
+  },
+  {
+    icon: 'shield',
+    title: t('landing.product.slides.trust.t3'),
+    desc: t('landing.product.slides.trust.d3'),
+  },
+  {
+    icon: 'trending-up',
+    title: t('landing.product.slides.trust.t4'),
+    desc: t('landing.product.slides.trust.d4'),
+  },
+])
+
+const trustMetrics = computed(() =>
+  (['m1', 'm2', 'm3', 'm4'] as const).map((m) => ({
+    value: t(`landing.product.slides.trust.${m}v`),
+    label: t(`landing.product.slides.trust.${m}l`),
+  })),
+)
 
 const rootRef = ref<HTMLElement | null>(null)
 const activeIndex = ref(0)
@@ -104,6 +139,10 @@ onMounted(() => {
   // scroll that overflow-hidden stage — visibly teleporting the dock.
   root.focus({ preventScroll: true })
   sections = Array.from(root.querySelectorAll<HTMLElement>('.pp-section'))
+  // Scrollspy on the container's CENTER BAND (the middle 10% of the
+  // viewport): a section is active while it overlaps that band. Unlike a
+  // visible-fraction threshold, this stays correct for sections taller
+  // than the viewport (the mobile trust section, for one).
   sectionObserver = new IntersectionObserver(
     (entries) => {
       for (const entry of entries) {
@@ -113,7 +152,7 @@ onMounted(() => {
         }
       }
     },
-    { root, threshold: 0.55 },
+    { root, rootMargin: '-45% 0px -45% 0px', threshold: 0 },
   )
   sections.forEach((section) => sectionObserver?.observe(section))
   window.addEventListener('wheel', onWindowWheel, { passive: true })
@@ -134,7 +173,7 @@ onBeforeUnmount(() => {
     tabindex="-1"
     @keydown="onKeydown"
   >
-    <!-- 1 · Hero — centered, the product name in full light. -->
+    <!-- 1 · Hero — identity, one strong claim, and a realistic workspace. -->
     <section class="pp-section pp-section--hero">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -142,33 +181,89 @@ onBeforeUnmount(() => {
         <i class="sec-blob sec-blob--c"></i>
       </div>
       <div class="hero-inner">
-        <div class="hero-cards" aria-hidden="true" data-reveal style="--reveal-delay: 260ms">
-          <div class="ui-window hero-card hero-card--chat">
-            <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
-            <i class="skel" style="width: 78%"></i>
-            <i class="skel" style="width: 52%"></i>
-            <i class="skel skel--accent" style="width: 64%"></i>
-          </div>
-          <div class="ui-window hero-card hero-card--graph">
-            <i class="hero-node" style="left: 22%; top: 30%"></i>
-            <i class="hero-node" style="left: 66%; top: 22%"></i>
-            <i class="hero-node" style="left: 48%; top: 62%"></i>
-            <i class="hero-edge" style="left: 26%; top: 32%; width: 42%; rotate: -8deg"></i>
-            <i class="hero-edge" style="left: 50%; top: 34%; width: 26%; rotate: 58deg"></i>
-          </div>
-        </div>
-        <h2 class="pp-title pp-title--hero" data-reveal>{{ t('app.name') }}</h2>
-        <p class="pp-sub pp-sub--hero" data-reveal style="--reveal-delay: 140ms">
+        <p class="hero-pill" data-reveal>
+          <i aria-hidden="true"></i>
+          {{ t('app.name') }}
+        </p>
+        <h2 class="pp-title pp-title--hero" data-reveal style="--reveal-delay: 80ms">
+          {{ t('landing.product.hero.title') }}
+        </h2>
+        <p class="pp-sub pp-sub--hero" data-reveal style="--reveal-delay: 160ms">
           {{ t('landing.product.hero.line') }}
         </p>
-        <p class="pp-hint" data-reveal style="--reveal-delay: 320ms">
+
+        <!-- The hero's real subject: the product itself, mid-conversation. -->
+        <div
+          class="ui-window ui-window--flow workspace"
+          aria-hidden="true"
+          data-reveal
+          style="--reveal-delay: 280ms"
+        >
+          <div class="ui-titlebar">
+            <i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i>
+            <span class="ws-name">{{ t('app.name') }}</span>
+          </div>
+          <div class="ws-body">
+            <div class="ws-side">
+              <span class="ws-side-item is-active">
+                <AppIcon name="graduation-cap" :size="15" />
+                {{ t('landing.product.slides.tutor.title') }}
+              </span>
+              <span class="ws-side-item">
+                <AppIcon name="notebook-pen" :size="15" />
+                {{ t('landing.product.slides.notes.title') }}
+              </span>
+              <span class="ws-side-item">
+                <AppIcon name="layers" :size="15" />
+                {{ t('landing.product.slides.flashcards.title') }}
+              </span>
+              <span class="ws-side-item">
+                <AppIcon name="network" :size="15" />
+                {{ t('landing.product.slides.graph.title') }}
+              </span>
+            </div>
+            <div class="ws-main">
+              <p class="ws-bubble ws-bubble--user">{{ t('landing.product.hero.wsUser') }}</p>
+              <p class="ws-bubble ws-bubble--ai">
+                {{ t('landing.product.hero.wsAi') }}<i class="stream-caret stream-caret--inline"></i>
+              </p>
+              <div class="ws-chips">
+                <span class="ws-chip">
+                  <AppIcon name="sparkles" :size="12" />
+                  {{ t('landing.product.hero.wsChip1') }}
+                </span>
+                <span class="ws-chip">
+                  <AppIcon name="code" :size="12" />
+                  {{ t('landing.product.hero.wsChip2') }}
+                </span>
+              </div>
+            </div>
+            <div class="ws-ctx">
+              <span class="panel-title">{{ t('landing.product.hero.wsCtx') }}</span>
+              <span class="ws-ctx-row is-done">
+                <AppIcon name="check-circle" :size="14" />
+                {{ t('landing.product.hero.wsCtx1') }}
+              </span>
+              <span class="ws-ctx-row is-done">
+                <AppIcon name="check-circle" :size="14" />
+                {{ t('landing.product.hero.wsCtx2') }}
+              </span>
+              <span class="ws-ctx-row is-now">
+                <AppIcon name="circle-dot" :size="14" />
+                {{ t('landing.product.hero.wsCtx3') }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <p class="pp-hint" data-reveal style="--reveal-delay: 420ms">
           <AppIcon name="chevron-down" size="sm" />
           {{ t('landing.product.hint') }}
         </p>
       </div>
     </section>
 
-    <!-- 2 · AI Tutor — text left, conversation window right. -->
+    <!-- 2 · AI Tutor — text left, a real conversation right. -->
     <section class="pp-section pp-section--tutor">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -191,38 +286,34 @@ onBeforeUnmount(() => {
           <div class="ui-window chat-window">
             <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
             <div class="chat-body">
-              <div class="chat-bubble chat-bubble--user">
-                <i class="skel skel--onprimary" style="width: 72%"></i>
-                <i class="skel skel--onprimary" style="width: 44%"></i>
-              </div>
+              <p class="chat-bubble chat-bubble--user">{{ t('landing.product.slides.tutor.q') }}</p>
               <div class="chat-bubble chat-bubble--ai">
                 <span class="chat-badge"><AppIcon name="graduation-cap" :size="14" /></span>
-                <div class="chat-lines">
-                  <i class="skel" style="width: 92%"></i>
-                  <i class="skel" style="width: 78%"></i>
-                  <i class="skel" style="width: 56%"></i>
-                </div>
+                <p class="chat-answer">{{ t('landing.product.slides.tutor.a') }}</p>
               </div>
             </div>
           </div>
-          <div class="float-chip float-chip--a">
+          <span class="float-chip float-chip--a">
             <AppIcon name="sparkles" :size="14" />
-            <i class="skel skel--chip" style="width: 62px"></i>
-          </div>
-          <div class="float-chip float-chip--b">
+            {{ t('landing.product.slides.tutor.chip1') }}
+          </span>
+          <span class="float-chip float-chip--b">
             <AppIcon name="message-square" :size="14" />
-            <i class="skel skel--chip" style="width: 46px"></i>
-          </div>
+            {{ t('landing.product.slides.tutor.chip2') }}
+          </span>
           <div class="ui-window float-panel timeline-panel">
-            <div class="tl-row"><i class="tl-dot"></i><i class="skel" style="width: 68%"></i></div>
-            <div class="tl-row"><i class="tl-dot"></i><i class="skel" style="width: 52%"></i></div>
-            <div class="tl-row"><i class="tl-dot tl-dot--now"></i><i class="skel" style="width: 60%"></i></div>
+            <span class="panel-title">{{ t('landing.product.slides.tutor.ctx') }}</span>
+            <div class="tl-row"><i class="tl-dot"></i>{{ t('landing.product.slides.tutor.ctx1') }}</div>
+            <div class="tl-row"><i class="tl-dot"></i>{{ t('landing.product.slides.tutor.ctx2') }}</div>
+            <div class="tl-row">
+              <i class="tl-dot tl-dot--now"></i>{{ t('landing.product.slides.tutor.ctx3') }}
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 3 · AI Notes — editor left, text right. -->
+    <!-- 3 · AI Notes — a living document left, text right. -->
     <section class="pp-section pp-section--notes">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -244,11 +335,26 @@ onBeforeUnmount(() => {
         <div class="pp-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
           <div class="ui-window note-window">
             <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
-            <i class="skel skel--title" style="width: 56%"></i>
-            <i class="skel" style="width: 92%"></i>
-            <i class="skel" style="width: 84%"></i>
-            <i class="note-image"></i>
-            <i class="skel" style="width: 64%"></i>
+            <p class="note-title">{{ t('landing.product.slides.notes.doc') }}</p>
+            <p class="note-body">{{ t('landing.product.slides.notes.body') }}</p>
+            <div class="note-highlight">
+              <span class="note-highlight-label">
+                <AppIcon name="sparkles" :size="12" />
+                {{ t('landing.product.slides.notes.summaryLabel') }}
+              </span>
+              <p class="note-summary">{{ t('landing.product.slides.notes.summary') }}</p>
+            </div>
+            <div class="note-links">
+              <span class="note-link">
+                <AppIcon name="link" :size="11" />{{ t('landing.product.slides.notes.link1') }}
+              </span>
+              <span class="note-link">
+                <AppIcon name="link" :size="11" />{{ t('landing.product.slides.notes.link2') }}
+              </span>
+              <span class="note-link">
+                <AppIcon name="link" :size="11" />{{ t('landing.product.slides.notes.link3') }}
+              </span>
+            </div>
           </div>
           <div class="float-panel code-panel">
             <div class="code-line">
@@ -265,15 +371,15 @@ onBeforeUnmount(() => {
               <i class="code-tok code-tok--amber" style="width: 52px"></i>
             </div>
           </div>
-          <div class="float-chip float-chip--note">
+          <span class="float-chip float-chip--note">
             <AppIcon name="sparkles" :size="14" />
-            <i class="skel skel--chip" style="width: 52px"></i>
-          </div>
+            {{ t('landing.product.slides.notes.chip') }}
+          </span>
         </div>
       </div>
     </section>
 
-    <!-- 4 · Flashcards — centered, a deck resting in depth. -->
+    <!-- 4 · Flashcards — a real card mid-review, spaced repetition visible. -->
     <section class="pp-section pp-section--flashcards">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -290,19 +396,27 @@ onBeforeUnmount(() => {
           <div class="ui-window stack-card stack-card--far"></div>
           <div class="ui-window stack-card stack-card--mid"></div>
           <div class="ui-window stack-card stack-card--front">
-            <AppIcon name="layers" :size="36" :stroke-width="1.25" />
-            <i class="skel" style="width: 52%"></i>
+            <p class="stack-question">{{ t('landing.product.slides.flashcards.q') }}</p>
+            <span class="stack-reveal">{{ t('landing.product.slides.flashcards.reveal') }}</span>
+          </div>
+          <div class="stack-srs">
+            <span class="srs-chip">{{ t('landing.product.slides.flashcards.again') }}</span>
+            <span class="srs-chip srs-chip--good">{{ t('landing.product.slides.flashcards.good') }}</span>
+            <span class="srs-chip">{{ t('landing.product.slides.flashcards.easy') }}</span>
           </div>
           <div class="stack-progress">
-            <i class="progress-dot is-done"></i>
-            <i class="progress-dot is-done"></i>
-            <i class="progress-dot"></i>
+            <span class="stack-count">{{ t('landing.product.slides.flashcards.count') }}</span>
+            <span class="progress-dots">
+              <i class="progress-dot is-done"></i>
+              <i class="progress-dot is-done"></i>
+              <i class="progress-dot"></i>
+            </span>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 5 · Knowledge Graph — text left, constellation right. -->
+    <!-- 5 · Knowledge Graph — named concepts, a visible learning path. -->
     <section class="pp-section pp-section--graph">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -325,9 +439,9 @@ onBeforeUnmount(() => {
           <div class="graph-field">
             <i class="graph-link" style="width: 173px; transform: rotate(-157.6deg)"></i>
             <i class="graph-link" style="width: 169px; transform: rotate(-27.5deg)"></i>
-            <i class="graph-link" style="width: 184px; transform: rotate(12.5deg)"></i>
+            <i class="graph-link graph-link--path" style="width: 184px; transform: rotate(12.5deg)"></i>
             <i class="graph-link" style="width: 158px; transform: rotate(155.4deg)"></i>
-            <i class="graph-link" style="width: 112px; transform: rotate(57.7deg)"></i>
+            <i class="graph-link graph-link--path" style="width: 112px; transform: rotate(57.7deg)"></i>
             <i
               class="graph-link graph-link--outer"
               style="left: 80px; top: 64px; width: 106px; transform: rotate(-18.8deg)"
@@ -342,19 +456,44 @@ onBeforeUnmount(() => {
             ></i>
             <i class="graph-node" style="left: 80px; top: 64px; --d: 0s"></i>
             <i class="graph-node graph-node--sm" style="left: 390px; top: 52px; --d: -1.3s"></i>
-            <i class="graph-node" style="left: 420px; top: 170px; --d: -2.1s"></i>
+            <i class="graph-node graph-node--path" style="left: 420px; top: 170px; --d: -2.1s"></i>
             <i class="graph-node graph-node--sm" style="left: 96px; top: 196px; --d: -3.4s"></i>
-            <i class="graph-node" style="left: 300px; top: 225px; --d: -4.2s"></i>
+            <i class="graph-node graph-node--path" style="left: 300px; top: 225px; --d: -4.2s"></i>
             <i class="graph-node graph-node--sm" style="left: 180px; top: 30px; --d: -5s"></i>
             <span class="graph-core">
               <AppIcon name="network" :size="24" :stroke-width="1.4" />
+            </span>
+            <span class="graph-tag" style="left: 80px; top: 80px">{{
+              t('landing.product.slides.graph.n1')
+            }}</span>
+            <span class="graph-tag" style="left: 390px; top: 66px">{{
+              t('landing.product.slides.graph.n2')
+            }}</span>
+            <span class="graph-tag graph-tag--path" style="left: 420px; top: 186px">{{
+              t('landing.product.slides.graph.n3')
+            }}</span>
+            <span class="graph-tag" style="left: 96px; top: 210px">{{
+              t('landing.product.slides.graph.n4')
+            }}</span>
+            <span class="graph-tag graph-tag--path" style="left: 300px; top: 238px">{{
+              t('landing.product.slides.graph.n5')
+            }}</span>
+            <span class="graph-tag" style="left: 180px; top: 44px">{{
+              t('landing.product.slides.graph.n6')
+            }}</span>
+            <span class="graph-tag graph-tag--core" style="left: 240px; top: 168px">{{
+              t('landing.product.slides.graph.core')
+            }}</span>
+            <span class="graph-path-pill">
+              <AppIcon name="route" :size="12" />
+              {{ t('landing.product.slides.graph.path') }}
             </span>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 6 · AI Engine — diagonal: streaming panel low-left, copy high-right. -->
+    <!-- 6 · AI Engine — reasoning you can watch, streaming as it thinks. -->
     <section class="pp-section pp-section--engine">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -377,21 +516,71 @@ onBeforeUnmount(() => {
           <i v-for="n in 12" :key="n" class="engine-particle" :style="{ '--i': n }"></i>
           <span class="engine-halo"></span>
           <span class="engine-core"><AppIcon name="cpu" :size="36" :stroke-width="1.1" /></span>
+          <div class="ui-window steps-panel">
+            <span class="panel-title">{{ t('landing.product.slides.engine.steps') }}</span>
+            <div class="step-row is-done">
+              <span class="step-ico"><AppIcon name="check" :size="11" /></span>
+              {{ t('landing.product.slides.engine.s1') }}
+            </div>
+            <div class="step-row is-done">
+              <span class="step-ico"><AppIcon name="check" :size="11" /></span>
+              {{ t('landing.product.slides.engine.s2') }}
+            </div>
+            <div class="step-row is-active">
+              <span class="step-ico"><AppIcon name="sparkles" :size="11" /></span>
+              {{ t('landing.product.slides.engine.s3') }}
+            </div>
+            <div class="step-row">
+              <span class="step-ico"></span>
+              {{ t('landing.product.slides.engine.s4') }}
+            </div>
+          </div>
           <div class="ui-window stream-window">
             <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
-            <i class="skel" style="width: 88%"></i>
-            <i class="skel" style="width: 74%"></i>
-            <i class="skel" style="width: 80%"></i>
-            <div class="stream-tail">
-              <i class="skel" style="width: 38%"></i>
-              <i class="stream-caret"></i>
-            </div>
+            <p class="stream-text">
+              {{ t('landing.product.slides.engine.out') }}<i class="stream-caret stream-caret--inline"></i>
+            </p>
           </div>
         </div>
       </div>
     </section>
 
-    <!-- 7 · Roadmap — centered timeline of milestones. -->
+    <!-- 7 · Trust — principles and honest numbers, never invented customers. -->
+    <section class="pp-section pp-section--trust">
+      <div class="sec-atmo" aria-hidden="true">
+        <i class="sec-blob sec-blob--a"></i>
+        <i class="sec-blob sec-blob--b"></i>
+        <i class="sec-blob sec-blob--c"></i>
+      </div>
+      <div class="pp-center pp-center--wide">
+        <div class="pp-copy pp-copy--center" data-reveal>
+          <span class="pp-badge" aria-hidden="true"><AppIcon name="shield" :size="22" /></span>
+          <h2 class="pp-title">{{ t('landing.product.slides.trust.title') }}</h2>
+          <p class="pp-sub">{{ t('landing.product.slides.trust.line') }}</p>
+        </div>
+        <div class="trust-grid">
+          <article
+            v-for="(card, i) in trustCards"
+            :key="card.title"
+            class="trust-card"
+            data-reveal
+            :style="{ '--reveal-delay': `${120 + i * 80}ms` }"
+          >
+            <span class="trust-ico" aria-hidden="true"><AppIcon :name="card.icon" :size="17" /></span>
+            <h3 class="trust-title">{{ card.title }}</h3>
+            <p class="trust-desc">{{ card.desc }}</p>
+          </article>
+        </div>
+        <div class="trust-metrics" data-reveal style="--reveal-delay: 420ms">
+          <div v-for="metric in trustMetrics" :key="metric.label" class="metric">
+            <span class="metric-value">{{ metric.value }}</span>
+            <span class="metric-label">{{ metric.label }}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8 · Roadmap — milestones on one warm line. -->
     <section class="pp-section pp-section--roadmap">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
@@ -422,19 +611,29 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <!-- 8 · Coming Soon — minimal ending, large type over one soft bloom. -->
-    <section class="pp-section pp-section--coming">
+    <!-- 9 · CTA — the strong quiet ending: one claim, one door. -->
+    <section class="pp-section pp-section--cta">
       <div class="sec-atmo" aria-hidden="true">
         <i class="sec-blob sec-blob--a"></i>
       </div>
       <div class="pp-center">
-        <span class="coming-orb" aria-hidden="true"><AppIcon name="sparkles" :size="26" /></span>
-        <h2 class="pp-title pp-title--coming" data-reveal>
-          {{ t('landing.product.slides.coming.title') }}
+        <span class="cta-orb" aria-hidden="true"><AppIcon name="sparkles" :size="26" /></span>
+        <h2 class="pp-title pp-title--cta" data-reveal>
+          {{ t('landing.product.slides.cta.title') }}
         </h2>
         <p class="pp-sub" data-reveal style="--reveal-delay: 140ms">
-          {{ t('landing.product.slides.coming.line') }}
+          {{ t('landing.product.slides.cta.line') }}
         </p>
+        <button
+          type="button"
+          class="cta-button"
+          data-reveal
+          style="--reveal-delay: 280ms"
+          @click="emit('close')"
+        >
+          {{ t('landing.product.slides.cta.action') }}
+          <AppIcon name="arrow-right" :size="16" />
+        </button>
       </div>
     </section>
 
@@ -443,12 +642,15 @@ onBeforeUnmount(() => {
         v-for="(item, i) in navItems"
         :key="SECTIONS[i]"
         type="button"
-        class="pp-nav-dot"
+        class="pp-nav-item"
         :class="{ active: i === activeIndex }"
         :aria-label="item"
         :aria-current="i === activeIndex || undefined"
         @click="goTo(i)"
-      ></button>
+      >
+        <span class="pp-nav-label" aria-hidden="true">{{ item }}</span>
+        <i class="pp-nav-dot" aria-hidden="true"></i>
+      </button>
     </nav>
   </section>
 </template>
@@ -537,13 +739,14 @@ onBeforeUnmount(() => {
   animation: app-underlight-c 40s var(--ease-in-out) infinite alternate;
 }
 
-/* The eight atmospheres — every section owns its own light. */
+/* The nine atmospheres — every section owns its own light. */
 .pp-section--hero {
   --sec-base: linear-gradient(180deg, #fdfcff, #f4f0ff);
   --blob-a: rgba(150, 115, 255, 0.18);
   --blob-b: rgba(255, 130, 195, 0.14);
   --blob-c: rgba(95, 155, 255, 0.13);
   --sec-accent: #6d4aff;
+  --sec-accent-2: #9a6bff;
 }
 
 .pp-section--tutor {
@@ -591,18 +794,29 @@ onBeforeUnmount(() => {
   --sec-accent-2: #7c5cff;
 }
 
+.pp-section--trust {
+  --sec-base: linear-gradient(180deg, #f6f7ff, #eceefc);
+  --blob-a: rgba(94, 106, 210, 0.16);
+  --blob-b: rgba(124, 58, 237, 0.1);
+  --blob-c: rgba(96, 165, 250, 0.12);
+  --sec-accent: #5e6ad2;
+  --sec-accent-2: #7c8aff;
+}
+
 .pp-section--roadmap {
   --sec-base: linear-gradient(180deg, #fffdf6, #fbf4e4);
   --blob-a: rgba(255, 195, 110, 0.2);
   --blob-b: rgba(255, 150, 105, 0.12);
   --blob-c: rgba(255, 235, 180, 0.2);
   --sec-accent: #d97706;
+  --sec-accent-2: #f59e0b;
 }
 
-.pp-section--coming {
+.pp-section--cta {
   --sec-base: linear-gradient(180deg, #f9f8ff, #efecfc);
   --blob-a: rgba(150, 120, 255, 0.2);
   --sec-accent: #6d4aff;
+  --sec-accent-2: #9a6bff;
 }
 
 /* ------------------------------------------------------------------ */
@@ -619,9 +833,10 @@ onBeforeUnmount(() => {
   color: var(--pp-ink);
 }
 
-/* The hero headline — the product name poured in saturated light. */
+/* The hero headline — the claim poured in saturated light. */
 .pp-title--hero {
-  font-size: clamp(3rem, 7.5vw, 6.2rem);
+  margin-top: var(--space-5);
+  font-size: clamp(2.7rem, 5.8vw, 4.9rem);
   background: linear-gradient(96deg, #5b3df0 4%, #b833b8 40%, #e8467c 66%, #2563eb 96%);
   -webkit-background-clip: text;
   background-clip: text;
@@ -629,13 +844,13 @@ onBeforeUnmount(() => {
   -webkit-text-fill-color: transparent;
 }
 
-.pp-title--coming {
+.pp-title--cta {
   font-size: clamp(2.7rem, 6.4vw, 5.2rem);
 }
 
 .pp-sub {
   margin: var(--space-4) 0 0;
-  max-width: 42ch;
+  max-width: 46ch;
   font-size: clamp(1.05rem, 1.6vw, 1.3rem);
   line-height: 1.6;
   color: var(--pp-ink-2);
@@ -643,14 +858,14 @@ onBeforeUnmount(() => {
 
 .pp-sub--hero {
   margin-inline: auto;
-  font-size: clamp(1.15rem, 2vw, 1.5rem);
+  font-size: clamp(1.1rem, 1.8vw, 1.4rem);
 }
 
 .pp-hint {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  margin: var(--space-8) 0 0;
+  margin: var(--space-6) 0 0;
   font-size: var(--text-xs);
   color: var(--pp-ink-3);
 }
@@ -697,6 +912,14 @@ onBeforeUnmount(() => {
   color: var(--sec-accent);
 }
 
+/* Small panel headers shared by every mockup ("Reasoning", "This week"…). */
+.panel-title {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  color: var(--pp-ink-3);
+}
+
 /* ------------------------------------------------------------------ */
 /* Layout — alternating compositions                                   */
 /* ------------------------------------------------------------------ */
@@ -736,6 +959,10 @@ onBeforeUnmount(() => {
   text-align: center;
 }
 
+.pp-center--wide {
+  width: min(980px, 100%);
+}
+
 .pp-copy--center {
   display: flex;
   flex-direction: column;
@@ -744,7 +971,7 @@ onBeforeUnmount(() => {
 
 .hero-inner {
   position: relative;
-  width: min(980px, 100%);
+  width: min(1020px, 100%);
   text-align: center;
 }
 
@@ -755,7 +982,7 @@ onBeforeUnmount(() => {
 }
 
 /* ------------------------------------------------------------------ */
-/* Shared UI-mockup vocabulary — white windows, soft depth             */
+/* Shared UI-mockup vocabulary — white windows, soft depth, real words */
 /* ------------------------------------------------------------------ */
 
 .ui-window {
@@ -770,10 +997,17 @@ onBeforeUnmount(() => {
   box-shadow:
     0 32px 70px -28px rgba(33, 28, 68, 0.28),
     0 4px 14px rgba(33, 28, 68, 0.05);
+  text-align: left;
+}
+
+/* Windows that live in normal flow (the hero workspace). */
+.ui-window--flow {
+  position: relative;
 }
 
 .ui-titlebar {
   display: flex;
+  align-items: center;
   gap: 6px;
 }
 
@@ -782,31 +1016,6 @@ onBeforeUnmount(() => {
   height: 8px;
   border-radius: 50%;
   background: rgba(33, 28, 68, 0.14);
-}
-
-.skel {
-  display: block;
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(33, 28, 68, 0.12);
-}
-
-.skel--title {
-  height: 12px;
-  border-radius: 6px;
-  background: rgba(33, 28, 68, 0.22);
-}
-
-.skel--accent {
-  background: color-mix(in srgb, var(--sec-accent) 35%, transparent);
-}
-
-.skel--onprimary {
-  background: rgba(255, 255, 255, 0.55);
-}
-
-.skel--chip {
-  height: 6px;
 }
 
 /* Floating accessories share the window skin at chip scale. */
@@ -821,60 +1030,184 @@ onBeforeUnmount(() => {
   background: #ffffff;
   box-shadow: 0 18px 40px -18px rgba(33, 28, 68, 0.3);
   color: var(--sec-accent);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .float-panel {
   position: absolute;
 }
 
-/* ------------------------------------------------------------------ */
-/* Hero composition — two soft app previews behind the headline        */
-/* ------------------------------------------------------------------ */
-
-.hero-cards {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-
-.hero-card {
-  width: 190px;
-  opacity: 0.85;
-}
-
-.hero-card--chat {
-  left: 0;
-  top: -34px;
-  rotate: -6deg;
-  animation: app-float 11s var(--ease-in-out) infinite alternate;
-}
-
-.hero-card--graph {
-  right: 0;
-  bottom: -50px;
-  height: 120px;
-  rotate: 4deg;
-  animation: app-float 13s var(--ease-in-out) -5s infinite alternate;
-}
-
-.hero-node {
-  position: absolute;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
+/* The blinking generation caret — shared by hero and engine. */
+.stream-caret {
+  width: 7px;
+  height: 13px;
+  border-radius: 2px;
   background: var(--sec-accent);
-  opacity: 0.75;
+  animation: pp-caret 1.1s steps(2, start) infinite;
 }
 
-.hero-edge {
-  position: absolute;
-  height: 1.5px;
-  background: color-mix(in srgb, var(--sec-accent) 30%, transparent);
-  transform-origin: 0 50%;
+.stream-caret--inline {
+  display: inline-block;
+  margin-left: 6px;
+  vertical-align: -2px;
+}
+
+@keyframes pp-caret {
+  to {
+    opacity: 0;
+  }
 }
 
 /* ------------------------------------------------------------------ */
-/* Tutor — a real conversation window with floating suggestions        */
+/* Hero — the workspace window IS the visual                           */
+/* ------------------------------------------------------------------ */
+
+.hero-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--pp-line);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.72);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--pp-ink-2);
+}
+
+.hero-pill i {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  background: linear-gradient(135deg, #5e6ad2, #7c3aed);
+}
+
+.workspace {
+  width: min(820px, 100%);
+  margin: var(--space-10) auto 0;
+  animation: app-float 14s var(--ease-in-out) infinite alternate;
+}
+
+.ws-name {
+  margin-left: var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pp-ink-3);
+}
+
+.ws-body {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) 168px;
+  gap: var(--space-4);
+}
+
+.ws-side {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-right: var(--space-3);
+  border-right: 1px solid var(--pp-line);
+}
+
+.ws-side-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 7px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--pp-ink-2);
+}
+
+.ws-side-item.is-active {
+  background: color-mix(in srgb, var(--sec-accent) 10%, transparent);
+  color: var(--sec-accent);
+  font-weight: 600;
+}
+
+.ws-main {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ws-bubble {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.ws-bubble--user {
+  align-self: flex-end;
+  max-width: 82%;
+  background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2));
+  color: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--sec-accent) 60%, transparent);
+}
+
+.ws-bubble--ai {
+  align-self: flex-start;
+  max-width: 94%;
+  background: rgba(33, 28, 68, 0.045);
+  color: var(--pp-ink-2);
+}
+
+.ws-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.ws-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--sec-accent) 28%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--sec-accent) 6%, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sec-accent);
+}
+
+.ws-ctx {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--pp-line);
+}
+
+.ws-ctx-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--pp-ink-2);
+}
+
+.ws-ctx-row.is-done {
+  color: var(--pp-ink-3);
+}
+
+.ws-ctx-row.is-done :deep(svg),
+.ws-ctx-row.is-now :deep(svg) {
+  color: var(--sec-accent);
+}
+
+.ws-ctx-row.is-now {
+  color: var(--pp-ink);
+  font-weight: 600;
+}
+
+/* ------------------------------------------------------------------ */
+/* Tutor — a real conversation with floating suggestions               */
 /* ------------------------------------------------------------------ */
 
 .chat-window {
@@ -891,23 +1224,26 @@ onBeforeUnmount(() => {
 }
 
 .chat-bubble {
-  display: flex;
-  gap: 10px;
+  margin: 0;
   padding: 12px 14px;
   border-radius: 16px;
+  font-size: 12.5px;
+  line-height: 1.55;
 }
 
 .chat-bubble--user {
-  flex-direction: column;
   align-self: flex-end;
-  width: 58%;
+  max-width: 78%;
   background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2));
+  color: rgba(255, 255, 255, 0.96);
   box-shadow: 0 12px 26px -12px color-mix(in srgb, var(--sec-accent) 60%, transparent);
 }
 
 .chat-bubble--ai {
+  display: flex;
+  gap: 10px;
   align-items: flex-start;
-  width: 86%;
+  max-width: 92%;
   background: rgba(33, 28, 68, 0.045);
 }
 
@@ -923,12 +1259,10 @@ onBeforeUnmount(() => {
   color: rgba(255, 255, 255, 0.95);
 }
 
-.chat-lines {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  flex: 1;
-  padding-top: 4px;
+.chat-answer {
+  margin: 0;
+  padding-top: 3px;
+  color: var(--pp-ink-2);
 }
 
 .float-chip--a {
@@ -939,8 +1273,8 @@ onBeforeUnmount(() => {
 }
 
 .float-chip--b {
-  right: 10%;
-  top: 32%;
+  right: 6%;
+  top: 30%;
   rotate: -2deg;
   animation: app-float 13s var(--ease-in-out) -7s infinite alternate;
 }
@@ -958,14 +1292,12 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-}
-
-.tl-row .skel {
-  flex: 1;
-  max-width: 68%;
+  font-size: 12px;
+  color: var(--pp-ink-2);
 }
 
 .tl-dot {
+  flex-shrink: 0;
   width: 9px;
   height: 9px;
   border-radius: 50%;
@@ -978,7 +1310,7 @@ onBeforeUnmount(() => {
 }
 
 /* ------------------------------------------------------------------ */
-/* Notes — an editor window, a code panel, an AI chip                  */
+/* Notes — a real document: summary, highlight, linked concepts        */
 /* ------------------------------------------------------------------ */
 
 .note-window {
@@ -988,14 +1320,64 @@ onBeforeUnmount(() => {
   animation: app-float 12s var(--ease-in-out) infinite alternate;
 }
 
-.note-image {
-  height: 74px;
-  border-radius: 12px;
-  background: linear-gradient(
-    120deg,
-    color-mix(in srgb, var(--sec-accent) 30%, #fff),
-    color-mix(in srgb, #e8467c 22%, #fff)
-  );
+.note-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--pp-ink);
+}
+
+.note-body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--pp-ink-2);
+}
+
+.note-highlight {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--sec-accent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--sec-accent) 8%, #fff);
+}
+
+.note-highlight-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--sec-accent);
+}
+
+.note-summary {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--pp-ink-2);
+}
+
+.note-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.note-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--sec-accent) 26%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--sec-accent) 6%, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sec-accent);
 }
 
 /* One small dark pane is allowed in the bright room: code reads as code. */
@@ -1042,18 +1424,18 @@ onBeforeUnmount(() => {
 }
 
 .float-chip--note {
-  right: 14%;
+  right: 10%;
   bottom: 2%;
   rotate: -3deg;
   animation: app-float 11s var(--ease-in-out) -6s infinite alternate;
 }
 
 /* ------------------------------------------------------------------ */
-/* Flashcards — the deck in depth, now resting in daylight             */
+/* Flashcards — a real card mid-review, intervals in view              */
 /* ------------------------------------------------------------------ */
 
 .stack-stage {
-  min-height: 280px;
+  min-height: 320px;
   margin-top: var(--space-8);
   max-width: 560px;
 }
@@ -1062,7 +1444,7 @@ onBeforeUnmount(() => {
    animation owns `transform` outright (the Phase 11 clobbering rule). */
 .stack-card {
   left: calc(50% - 131px);
-  top: calc(50% - 90px);
+  top: calc(50% - 104px);
   width: 262px;
   height: 156px;
   align-items: center;
@@ -1070,6 +1452,7 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
   border-radius: 22px;
   color: var(--pp-ink);
+  text-align: center;
 }
 
 .stack-card--far {
@@ -1085,24 +1468,73 @@ onBeforeUnmount(() => {
 }
 
 .stack-card--front {
+  padding: var(--space-5);
   background: linear-gradient(
     135deg,
     color-mix(in srgb, var(--sec-accent) 14%, #fff),
     color-mix(in srgb, var(--sec-accent-2) 22%, #fff)
   );
-  color: var(--sec-accent);
   animation: app-float 10s var(--ease-in-out) infinite alternate;
 }
 
-.stack-card--front .skel {
-  width: 52%;
-  background: color-mix(in srgb, var(--sec-accent) 30%, transparent);
+.stack-question {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.45;
+  color: var(--pp-ink);
+}
+
+.stack-reveal {
+  font-size: 11px;
+  color: color-mix(in srgb, var(--sec-accent) 75%, var(--pp-ink));
+}
+
+/* The spaced-repetition intervals — the product's memory model, visible. */
+.stack-srs {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  display: flex;
+  gap: var(--space-2);
+  translate: -50% 0;
+}
+
+.srs-chip {
+  padding: 6px 14px;
+  border: 1px solid var(--pp-line);
+  border-radius: var(--radius-full);
+  background: #ffffff;
+  box-shadow: 0 10px 24px -12px rgba(33, 28, 68, 0.3);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pp-ink-2);
+  white-space: nowrap;
+}
+
+.srs-chip--good {
+  border-color: color-mix(in srgb, var(--sec-accent) 40%, transparent);
+  background: color-mix(in srgb, var(--sec-accent) 10%, #fff);
+  color: var(--sec-accent);
 }
 
 .stack-progress {
   position: absolute;
-  left: calc(50% - 24px);
+  left: 50%;
   bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  translate: -50% 0;
+}
+
+.stack-count {
+  font-size: 11px;
+  color: var(--pp-ink-3);
+  white-space: nowrap;
+}
+
+.progress-dots {
   display: flex;
   gap: 8px;
 }
@@ -1119,14 +1551,14 @@ onBeforeUnmount(() => {
 }
 
 /* ------------------------------------------------------------------ */
-/* Knowledge Graph — the constellation, re-lit for daylight            */
+/* Knowledge Graph — named concepts, one lit learning path             */
 /* ------------------------------------------------------------------ */
 
 .graph-field {
   position: relative;
   width: 480px;
   max-width: 100%;
-  height: 260px;
+  height: 280px;
   margin-inline: auto;
 }
 
@@ -1151,6 +1583,17 @@ onBeforeUnmount(() => {
   );
 }
 
+/* The learning path holds more light than the rest of the constellation. */
+.graph-link--path {
+  height: 2.5px;
+  background: linear-gradient(
+    90deg,
+    var(--sec-accent),
+    color-mix(in srgb, var(--sec-accent) 30%, transparent)
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--sec-accent) 35%, transparent);
+}
+
 .graph-node {
   position: absolute;
   width: 14px;
@@ -1167,6 +1610,13 @@ onBeforeUnmount(() => {
 .graph-node--sm {
   width: 9px;
   height: 9px;
+}
+
+.graph-node--path {
+  background: var(--sec-accent);
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--sec-accent) 22%, transparent),
+    0 8px 22px -6px color-mix(in srgb, var(--sec-accent) 70%, transparent);
 }
 
 .graph-core {
@@ -1186,6 +1636,47 @@ onBeforeUnmount(() => {
   color: var(--sec-accent);
 }
 
+/* Concept names — small white tags floating under their nodes. */
+.graph-tag {
+  position: absolute;
+  padding: 2px 9px;
+  border: 1px solid var(--pp-line);
+  border-radius: var(--radius-full);
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--pp-ink-2);
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+
+.graph-tag--path {
+  border-color: color-mix(in srgb, var(--sec-accent) 35%, transparent);
+  color: var(--sec-accent);
+}
+
+.graph-tag--core {
+  font-size: 11.5px;
+  color: var(--pp-ink);
+}
+
+.graph-path-pill {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid color-mix(in srgb, var(--sec-accent) 30%, transparent);
+  border-radius: var(--radius-full);
+  background: color-mix(in srgb, var(--sec-accent) 8%, #fff);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--sec-accent);
+  white-space: nowrap;
+}
+
 @keyframes pp-node-pulse {
   from {
     opacity: 0.6;
@@ -1198,39 +1689,77 @@ onBeforeUnmount(() => {
 }
 
 /* ------------------------------------------------------------------ */
-/* AI Engine — a streaming response beside a breathing core            */
+/* AI Engine — visible reasoning beside a breathing core               */
 /* ------------------------------------------------------------------ */
 
 .engine-stage {
-  min-height: 360px;
+  min-height: 380px;
 }
 
 .stream-window {
   right: 4%;
   bottom: 6%;
-  width: min(360px, 80%);
+  z-index: 1;
+  width: min(340px, 78%);
   rotate: -2deg;
   animation: app-float 12s var(--ease-in-out) infinite alternate;
 }
 
-.stream-tail {
+.stream-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--pp-ink-2);
+}
+
+/* The reasoning pipeline — each step a checkpoint of the workflow. */
+.steps-panel {
+  left: 0;
+  top: 34%;
+  width: 210px;
+  gap: 10px;
+  animation: app-float 13s var(--ease-in-out) -6s infinite alternate;
+}
+
+.step-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
+  font-size: 12px;
+  color: var(--pp-ink-2);
 }
 
-.stream-caret {
-  width: 8px;
-  height: 14px;
-  border-radius: 2px;
+.step-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(33, 28, 68, 0.18);
+}
+
+.step-row.is-done .step-ico {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--sec-accent) 14%, transparent);
+  color: var(--sec-accent);
+}
+
+.step-row.is-done {
+  color: var(--pp-ink-3);
+}
+
+.step-row.is-active {
+  color: var(--pp-ink);
+  font-weight: 600;
+}
+
+.step-row.is-active .step-ico {
+  border-color: transparent;
   background: var(--sec-accent);
-  animation: pp-caret 1.1s steps(2, start) infinite;
-}
-
-@keyframes pp-caret {
-  to {
-    opacity: 0;
-  }
+  color: #ffffff;
+  animation: pp-soon-pulse 3s var(--ease-in-out) infinite alternate;
 }
 
 .engine-core {
@@ -1308,6 +1837,83 @@ onBeforeUnmount(() => {
     transform: translateY(-240px);
     opacity: 0;
   }
+}
+
+/* ------------------------------------------------------------------ */
+/* Trust — principle cards and honest metrics                          */
+/* ------------------------------------------------------------------ */
+
+.trust-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  width: min(760px, 100%);
+  margin-top: var(--space-10);
+}
+
+.trust-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-5) var(--space-6);
+  border: 1px solid var(--pp-line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 20px 50px -30px rgba(33, 28, 68, 0.3);
+  text-align: left;
+}
+
+.trust-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: var(--space-1);
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2));
+  color: rgba(255, 255, 255, 0.96);
+}
+
+.trust-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--pp-ink);
+}
+
+.trust-desc {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--pp-ink-2);
+}
+
+.trust-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-4);
+  width: min(760px, 100%);
+  margin-top: var(--space-8);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.metric-value {
+  font-size: clamp(1.6rem, 2.4vw, 2.2rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--sec-accent);
+}
+
+.metric-label {
+  font-size: var(--text-xs);
+  color: var(--pp-ink-3);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1394,10 +2000,10 @@ onBeforeUnmount(() => {
 }
 
 /* ------------------------------------------------------------------ */
-/* Coming Soon — the quiet ending                                      */
+/* CTA — one claim, one door                                           */
 /* ------------------------------------------------------------------ */
 
-.coming-orb {
+.cta-orb {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1417,8 +2023,43 @@ onBeforeUnmount(() => {
   animation: app-float 12s var(--ease-in-out) infinite alternate;
 }
 
+.cta-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-8);
+  padding: 14px 30px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2));
+  color: rgba(255, 255, 255, 0.97);
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  box-shadow: 0 20px 44px -16px color-mix(in srgb, var(--sec-accent) 60%, transparent);
+  cursor: pointer;
+  transition:
+    box-shadow 400ms var(--ease-out),
+    filter 400ms var(--ease-out);
+}
+
+.cta-button:hover {
+  filter: brightness(1.07);
+  box-shadow: 0 24px 52px -16px color-mix(in srgb, var(--sec-accent) 70%, transparent);
+}
+
+/* Mass settling, never a spring (the house press). */
+.cta-button:active {
+  transform: translateY(0.5px);
+}
+
+.cta-button:focus-visible {
+  outline: var(--border-width-md) solid var(--color-focus-ring);
+  outline-offset: 3px;
+}
+
 /* ------------------------------------------------------------------ */
-/* Section nav — quiet dots at the right edge                          */
+/* Section nav — quiet dots, the active one names itself               */
 /* ------------------------------------------------------------------ */
 
 .pp-nav {
@@ -1428,26 +2069,60 @@ onBeforeUnmount(() => {
   translate: 0 -50%;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.pp-nav-item {
+  display: flex;
   align-items: center;
   gap: 10px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.pp-nav-label {
+  max-width: 14em;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--pp-ink-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0;
+  translate: 4px 0;
+  transition:
+    opacity 300ms var(--ease-out),
+    translate 300ms var(--ease-out),
+    color 300ms var(--ease-out);
+}
+
+.pp-nav-item:hover .pp-nav-label,
+.pp-nav-item:focus-visible .pp-nav-label,
+.pp-nav-item.active .pp-nav-label {
+  opacity: 1;
+  translate: 0 0;
+}
+
+.pp-nav-item.active .pp-nav-label {
+  color: var(--pp-ink-2);
 }
 
 .pp-nav-dot {
   width: 8px;
   height: 8px;
-  padding: 0;
-  border: none;
   border-radius: var(--radius-full);
   background: rgba(33, 28, 68, 0.2);
-  cursor: pointer;
   transition: background-color 500ms var(--ease-out);
 }
 
-.pp-nav-dot.active {
+.pp-nav-item.active .pp-nav-dot {
   background: rgba(33, 28, 68, 0.85);
 }
 
-.pp-nav-dot:focus-visible {
+.pp-nav-item:focus-visible {
   outline: var(--border-width-md) solid var(--color-focus-ring);
   outline-offset: 2px;
 }
@@ -1494,14 +2169,21 @@ onBeforeUnmount(() => {
     padding: 80px var(--space-5) 132px;
   }
 
-  .hero-cards {
+  /* The workspace narrows to its conversation — the side rails go. */
+  .ws-body {
+    grid-template-columns: 1fr;
+  }
+
+  .ws-side,
+  .ws-ctx {
     display: none;
   }
 
   .float-chip--a,
   .float-chip--b,
   .float-chip--note,
-  .timeline-panel {
+  .timeline-panel,
+  .steps-panel {
     display: none;
   }
 
@@ -1526,12 +2208,25 @@ onBeforeUnmount(() => {
     top: 2%;
   }
 
+  .trust-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .trust-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    row-gap: var(--space-6);
+  }
+
   .roadmap-label {
     font-size: var(--text-xs);
   }
 
   .pp-nav {
     right: 8px;
+  }
+
+  .pp-nav-label {
+    display: none;
   }
 }
 </style>
