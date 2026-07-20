@@ -62,6 +62,31 @@ function points(key: 'tutor' | 'notes' | 'graph' | 'engine') {
   return (['p1', 'p2', 'p3'] as const).map((p) => t(`landing.product.slides.${key}.${p}`))
 }
 
+/**
+ * Story chapters — the eyebrow above each section title. It groups the nine
+ * scenes into one arc (Product → Experience → Principles → What's next) so the
+ * sections read as chapters of a single story, not isolated feature blocks.
+ * The five feature scenes also carry a running number; the closing chapters
+ * (trust, roadmap) carry only their name.
+ */
+const KICKERS: Record<string, { chapter: string; n?: number }> = {
+  tutor: { chapter: 'product', n: 1 },
+  notes: { chapter: 'product', n: 2 },
+  flashcards: { chapter: 'product', n: 3 },
+  graph: { chapter: 'experience', n: 4 },
+  engine: { chapter: 'experience', n: 5 },
+  trust: { chapter: 'trust' },
+  roadmap: { chapter: 'future' },
+}
+
+function kicker(key: keyof typeof KICKERS) {
+  const k = KICKERS[key]!
+  return {
+    label: t(`landing.product.chapters.${k.chapter}`),
+    num: k.n ? String(k.n).padStart(2, '0') : '',
+  }
+}
+
 const roadmapStops = computed(() => [
   { label: t('landing.product.slides.roadmap.m1'), soon: false },
   { label: t('landing.product.slides.roadmap.m2'), soon: false },
@@ -107,6 +132,37 @@ useScrollReveal(rootRef)
 
 let sections: HTMLElement[] = []
 let sectionObserver: IntersectionObserver | null = null
+
+/*
+ * Engine stream — a single moment of life: the answer types itself out ONCE
+ * when the engine scene first arrives, then rests with a blinking cursor (a
+ * real cursor blinks forever — that stays). It is a genuine one-shot, not a
+ * loop: `engineText` reveals the localized output a character at a time, and
+ * once complete `engineDone` pins the full string so a later locale switch
+ * simply re-renders it whole. Reduced-motion users get the full text at once.
+ */
+const engineStageRef = ref<HTMLElement | null>(null)
+const engineTypedCount = ref(0)
+const engineDone = ref(false)
+const engineFull = computed(() => t('landing.product.slides.engine.out'))
+const engineText = computed(() =>
+  engineDone.value ? engineFull.value : engineFull.value.slice(0, engineTypedCount.value),
+)
+let typingTimer = 0
+let engineObserver: IntersectionObserver | null = null
+
+function startEngineTyping() {
+  if (engineDone.value || typingTimer) return
+  typingTimer = window.setInterval(() => {
+    if (engineTypedCount.value >= engineFull.value.length) {
+      window.clearInterval(typingTimer)
+      typingTimer = 0
+      engineDone.value = true
+      return
+    }
+    engineTypedCount.value += 1
+  }, 26)
+}
 
 function goTo(i: number) {
   // behavior stays unset: the container's CSS scroll-behavior decides, so
@@ -156,11 +212,32 @@ onMounted(() => {
   )
   sections.forEach((section) => sectionObserver?.observe(section))
   window.addEventListener('wheel', onWindowWheel, { passive: true })
+
+  // The engine typewriter fires once, the first time its scene scrolls into
+  // the container. Reduced-motion users skip the animation and see it whole.
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    engineDone.value = true
+  } else if (engineStageRef.value) {
+    engineObserver = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          startEngineTyping()
+          engineObserver?.disconnect()
+          engineObserver = null
+        }
+      },
+      { root, threshold: 0.4 },
+    )
+    engineObserver.observe(engineStageRef.value)
+  }
 })
 
 onBeforeUnmount(() => {
   sectionObserver?.disconnect()
   sectionObserver = null
+  engineObserver?.disconnect()
+  engineObserver = null
+  if (typingTimer) window.clearInterval(typingTimer)
   window.removeEventListener('wheel', onWindowWheel)
 })
 </script>
@@ -273,6 +350,10 @@ onBeforeUnmount(() => {
       <div class="pp-grid">
         <div class="pp-copy" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="graduation-cap" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('tutor').label }}<em v-if="kicker('tutor').num"> · {{ kicker('tutor').num }}</em>
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.tutor.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.tutor.line') }}</p>
           <ul class="pp-points">
@@ -287,10 +368,12 @@ onBeforeUnmount(() => {
             <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
             <div class="chat-body">
               <p class="chat-bubble chat-bubble--user">{{ t('landing.product.slides.tutor.q') }}</p>
+              <span class="chat-time chat-time--user">09:41</span>
               <div class="chat-bubble chat-bubble--ai">
                 <span class="chat-badge"><AppIcon name="graduation-cap" :size="14" /></span>
                 <p class="chat-answer">{{ t('landing.product.slides.tutor.a') }}</p>
               </div>
+              <span class="chat-time">09:41</span>
             </div>
           </div>
           <span class="float-chip float-chip--a">
@@ -323,6 +406,10 @@ onBeforeUnmount(() => {
       <div class="pp-grid pp-grid--flip">
         <div class="pp-copy" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="notebook-pen" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('notes').label }}<em v-if="kicker('notes').num"> · {{ kicker('notes').num }}</em>
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.notes.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.notes.line') }}</p>
           <ul class="pp-points">
@@ -357,19 +444,21 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="float-panel code-panel">
-            <div class="code-line">
-              <i class="code-tok code-tok--violet" style="width: 34px"></i>
-              <i class="code-tok" style="width: 58px"></i>
-            </div>
-            <div class="code-line">
-              <i class="code-tok code-tok--rose" style="width: 46px"></i>
-              <i class="code-tok" style="width: 30px"></i>
-              <i class="code-tok code-tok--cyan" style="width: 40px"></i>
-            </div>
-            <div class="code-line">
-              <i class="code-tok" style="width: 24px"></i>
-              <i class="code-tok code-tok--amber" style="width: 52px"></i>
-            </div>
+            <code class="code-real">
+              <span class="cl"
+                ><span class="ct-var">scores</span> <span class="ct-op">=</span> q
+                <span class="ct-op">@</span> k<span class="ct-op">.</span>T
+                <span class="ct-op">/</span> <span class="ct-fn">sqrt</span>(d)</span
+              >
+              <span class="cl"
+                ><span class="ct-var">weights</span> <span class="ct-op">=</span>
+                <span class="ct-fn">softmax</span>(scores)</span
+              >
+              <span class="cl"
+                ><span class="ct-var">out</span> <span class="ct-op">=</span> weights
+                <span class="ct-op">@</span> v</span
+              >
+            </code>
           </div>
           <span class="float-chip float-chip--note">
             <AppIcon name="sparkles" :size="14" />
@@ -389,6 +478,11 @@ onBeforeUnmount(() => {
       <div class="pp-center">
         <div class="pp-copy pp-copy--center" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="layers" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('flashcards').label
+            }}<em v-if="kicker('flashcards').num"> · {{ kicker('flashcards').num }}</em>
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.flashcards.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.flashcards.line') }}</p>
         </div>
@@ -426,6 +520,10 @@ onBeforeUnmount(() => {
       <div class="pp-grid">
         <div class="pp-copy" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="network" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('graph').label }}<em v-if="kicker('graph').num"> · {{ kicker('graph').num }}</em>
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.graph.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.graph.line') }}</p>
           <ul class="pp-points">
@@ -503,6 +601,10 @@ onBeforeUnmount(() => {
       <div class="pp-grid pp-grid--flip pp-grid--engine">
         <div class="pp-copy" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="cpu" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('engine').label }}<em v-if="kicker('engine').num"> · {{ kicker('engine').num }}</em>
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.engine.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.engine.line') }}</p>
           <ul class="pp-points">
@@ -512,7 +614,13 @@ onBeforeUnmount(() => {
             </li>
           </ul>
         </div>
-        <div class="pp-stage engine-stage" aria-hidden="true" data-reveal style="--reveal-delay: 160ms">
+        <div
+          ref="engineStageRef"
+          class="pp-stage engine-stage"
+          aria-hidden="true"
+          data-reveal
+          style="--reveal-delay: 160ms"
+        >
           <i v-for="n in 12" :key="n" class="engine-particle" :style="{ '--i': n }"></i>
           <span class="engine-halo"></span>
           <span class="engine-core"><AppIcon name="cpu" :size="36" :stroke-width="1.1" /></span>
@@ -538,7 +646,7 @@ onBeforeUnmount(() => {
           <div class="ui-window stream-window">
             <div class="ui-titlebar"><i class="ui-dot"></i><i class="ui-dot"></i><i class="ui-dot"></i></div>
             <p class="stream-text">
-              {{ t('landing.product.slides.engine.out') }}<i class="stream-caret stream-caret--inline"></i>
+              {{ engineText }}<i class="stream-caret stream-caret--inline"></i>
             </p>
           </div>
         </div>
@@ -555,6 +663,10 @@ onBeforeUnmount(() => {
       <div class="pp-center pp-center--wide">
         <div class="pp-copy pp-copy--center" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="shield" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('trust').label }}
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.trust.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.trust.line') }}</p>
         </div>
@@ -590,6 +702,10 @@ onBeforeUnmount(() => {
       <div class="pp-center">
         <div class="pp-copy pp-copy--center" data-reveal>
           <span class="pp-badge" aria-hidden="true"><AppIcon name="route" :size="22" /></span>
+          <p class="pp-kicker">
+            <span class="pp-kicker-tick" aria-hidden="true"></span>
+            {{ kicker('roadmap').label }}
+          </p>
           <h2 class="pp-title">{{ t('landing.product.slides.roadmap.title') }}</h2>
           <p class="pp-sub">{{ t('landing.product.slides.roadmap.line') }}</p>
         </div>
@@ -870,13 +986,39 @@ onBeforeUnmount(() => {
   color: var(--pp-ink-3);
 }
 
+/* Chapter eyebrow — a small tracked label that names the story chapter above
+   each section title, tying the nine scenes into one narrative arc. */
+.pp-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--sec-accent);
+}
+
+.pp-kicker em {
+  font-style: normal;
+  color: var(--pp-ink-3);
+}
+
+.pp-kicker-tick {
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--sec-accent), transparent);
+}
+
 .pp-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 46px;
   height: 46px;
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-4);
   border-radius: 15px;
   background: linear-gradient(135deg, var(--sec-accent), var(--sec-accent-2, var(--sec-accent)));
   color: rgba(255, 255, 255, 0.96);
@@ -1265,6 +1407,19 @@ onBeforeUnmount(() => {
   color: var(--pp-ink-2);
 }
 
+/* Natural timestamps — a quiet realism cue: each bubble is stamped, the
+   sender's own time pulled to its side. */
+.chat-time {
+  align-self: flex-start;
+  margin-top: -6px;
+  font-size: 10px;
+  color: var(--pp-ink-3);
+}
+
+.chat-time--user {
+  align-self: flex-end;
+}
+
 .float-chip--a {
   right: 2%;
   top: 8%;
@@ -1396,31 +1551,33 @@ onBeforeUnmount(() => {
   animation: app-float 13s var(--ease-in-out) -4s infinite alternate;
 }
 
-.code-line {
+/* Real code, not skeleton bars: the note's attention math as a runnable
+   snippet, syntax-lit in the one dark pane the bright room allows. */
+.code-real {
   display: flex;
-  gap: 8px;
+  flex-direction: column;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.82);
 }
 
-.code-tok {
-  height: 7px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.28);
+.code-real .cl {
+  display: block;
+  white-space: nowrap;
 }
 
-.code-tok--violet {
-  background: rgba(170, 140, 255, 0.85);
+.ct-var {
+  color: #ffd68a;
 }
 
-.code-tok--rose {
-  background: rgba(255, 130, 175, 0.8);
+.ct-fn {
+  color: #7fd6ff;
 }
 
-.code-tok--cyan {
-  background: rgba(110, 220, 255, 0.8);
-}
-
-.code-tok--amber {
-  background: rgba(255, 200, 110, 0.85);
+.ct-op {
+  color: rgba(255, 255, 255, 0.45);
 }
 
 .float-chip--note {

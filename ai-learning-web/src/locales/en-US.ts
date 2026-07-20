@@ -645,6 +645,12 @@ const enUS: typeof zhCN = {
       label: 'Product presentation',
       nav: 'Sections',
       hint: 'Scroll to explore',
+      chapters: {
+        product: 'Product',
+        experience: 'Experience',
+        trust: 'Principles',
+        future: "What's next",
+      },
       hero: {
         title: 'The AI-native way to learn',
         line: 'One workspace where tutoring, notes, flashcards and knowledge graphs think with you.',

@@ -623,6 +623,12 @@ export default {
       label: '产品演示',
       nav: '章节',
       hint: '滚动继续浏览',
+      chapters: {
+        product: '产品',
+        experience: '体验',
+        trust: '原则',
+        future: '未来规划',
+      },
       hero: {
         title: 'AI 原生的学习方式',
         line: '导师、笔记、闪卡与知识图谱，在同一个工作台与你一同思考。',
