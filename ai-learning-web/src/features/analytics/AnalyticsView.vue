@@ -57,6 +57,12 @@ const completionText = computed(() => {
   return percent === null || percent === undefined ? '—' : `${percent}%`
 })
 
+/** Retention is null with no mature reviews yet → "—", never a fabricated 0%. */
+const retentionText = computed(() => {
+  const percent = data.value?.summary.retentionPercent
+  return percent === null || percent === undefined ? '—' : `${percent}%`
+})
+
 // --- Weekly bar chart (last 7 days of the shared series) ----------------------
 
 const weekActivity = computed(() => data.value?.activity.slice(-7) ?? [])
@@ -197,7 +203,7 @@ async function generateInsights() {
     <!-- Loading -->
     <div v-if="showSkeleton" aria-hidden="true">
       <div class="stat-row">
-        <AppSkeleton v-for="n in 4" :key="n" variant="block" height="104px" />
+        <AppSkeleton v-for="n in 6" :key="n" variant="block" height="104px" />
       </div>
       <div class="two-col">
         <AppSkeleton variant="block" height="280px" />
@@ -235,6 +241,16 @@ async function generateInsights() {
           icon="bot"
           :label="t('analytics.stats.aiUsage')"
           :value="t('analytics.stats.aiUsageUnit', { n: data.summary.aiChatsThisWeek })"
+        />
+        <StatTile
+          icon="layers"
+          :label="t('analytics.stats.reviews')"
+          :value="t('analytics.stats.reviewsUnit', { n: data.summary.reviewsThisWeek })"
+        />
+        <StatTile
+          icon="target"
+          :label="t('analytics.stats.retention')"
+          :value="retentionText"
         />
       </div>
 
@@ -378,7 +394,7 @@ async function generateInsights() {
 
 .stat-row {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: var(--space-4);
   margin-bottom: var(--space-8);
 }

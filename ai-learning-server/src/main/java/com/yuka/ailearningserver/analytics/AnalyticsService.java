@@ -9,6 +9,8 @@ import com.yuka.ailearningserver.analytics.dto.SubjectShareResponse;
 import com.yuka.ailearningserver.calendar.entity.StudySession;
 import com.yuka.ailearningserver.calendar.mapper.StudySessionMapper;
 import com.yuka.ailearningserver.common.exception.BusinessException;
+import com.yuka.ailearningserver.flashcard.entity.ReviewLog;
+import com.yuka.ailearningserver.flashcard.mapper.ReviewLogMapper;
 import com.yuka.ailearningserver.subject.entity.Subject;
 import com.yuka.ailearningserver.subject.mapper.SubjectMapper;
 import com.yuka.ailearningserver.task.entity.LearningTask;
@@ -51,13 +53,16 @@ public class AnalyticsService {
     private final LearningTaskMapper taskMapper;
     private final AiConversationMapper conversationMapper;
     private final SubjectMapper subjectMapper;
+    private final ReviewLogMapper reviewLogMapper;
 
     public AnalyticsService(StudySessionMapper sessionMapper, LearningTaskMapper taskMapper,
-                            AiConversationMapper conversationMapper, SubjectMapper subjectMapper) {
+                            AiConversationMapper conversationMapper, SubjectMapper subjectMapper,
+                            ReviewLogMapper reviewLogMapper) {
         this.sessionMapper = sessionMapper;
         this.taskMapper = taskMapper;
         this.conversationMapper = conversationMapper;
         this.subjectMapper = subjectMapper;
+        this.reviewLogMapper = reviewLogMapper;
     }
 
     public AnalyticsSummaryResponse summary(Long userId) {
@@ -94,8 +99,30 @@ public class AnalyticsService {
                 .eq(AiConversation::getUserId, userId)
                 .ge(AiConversation::getCreatedAt, weekStart));
 
+        List<ReviewLog> weekReviews = reviewLogMapper.selectList(new LambdaQueryWrapper<ReviewLog>()
+                .select(ReviewLog::getRating, ReviewLog::getElapsedDays)
+                .eq(ReviewLog::getUserId, userId)
+                .ge(ReviewLog::getReviewedAt, weekStart));
+        int matureReviews = 0;
+        int remembered = 0;
+        for (ReviewLog review : weekReviews) {
+            // Retention is measured only on genuine recall attempts: cards tested
+            // after a real interval (elapsed ≥ 1 day). First-introductions
+            // (elapsed null) and same-day learning reps (elapsed 0) are excluded.
+            if (review.getElapsedDays() != null && review.getElapsedDays() >= 1) {
+                matureReviews++;
+                if (review.getRating() >= 2) { // Hard/Good/Easy = recalled; Again = lapse
+                    remembered++;
+                }
+            }
+        }
+        Integer retentionPercent = matureReviews > 0
+                ? Math.toIntExact(Math.round(remembered * 100.0 / matureReviews))
+                : null;
+
         return new AnalyticsSummaryResponse(Math.toIntExact(weekMinutes), weekDeltaPercent,
-                streakDays(userId), taskCompletionPercent, Math.toIntExact(aiChatsThisWeek));
+                streakDays(userId), taskCompletionPercent, Math.toIntExact(aiChatsThisWeek),
+                weekReviews.size(), retentionPercent);
     }
 
     /**
@@ -115,8 +142,26 @@ public class AnalyticsService {
             minutes[index] += Duration.between(session.getStartsAt(), session.getEndsAt()).toMinutes();
             sessions[index]++;
         }
+
+        // No upper bound: a review always happens at/before now (unlike sessions,
+        // which can be planned in the future). Bounding by `now` would only add a
+        // sub-second race — a just-written reviewed_at can round up (MySQL DATETIME)
+        // to a second fractionally ahead of `now` and be dropped for ~1s, briefly
+        // disagreeing with the review summary. The window floor is enough.
+        int[] reviews = new int[days];
+        for (ReviewLog review : reviewLogMapper.selectList(new LambdaQueryWrapper<ReviewLog>()
+                .select(ReviewLog::getReviewedAt)
+                .eq(ReviewLog::getUserId, userId)
+                .ge(ReviewLog::getReviewedAt, firstDay.atStartOfDay()))) {
+            int i = Math.toIntExact(ChronoUnit.DAYS.between(firstDay, review.getReviewedAt().toLocalDate()));
+            if (i >= 0 && i < days) { // guard a clock-skewed/future-dated row from overflowing the window
+                reviews[i]++;
+            }
+        }
+
         return IntStream.range(0, days)
-                .mapToObj(i -> new ActivityDayResponse(firstDay.plusDays(i).toString(), minutes[i], sessions[i]))
+                .mapToObj(i -> new ActivityDayResponse(
+                        firstDay.plusDays(i).toString(), minutes[i], sessions[i], reviews[i]))
                 .toList();
     }
 

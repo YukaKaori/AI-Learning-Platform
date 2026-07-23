@@ -7,7 +7,10 @@ export interface FlashcardDeckDto {
   name: string
   description: string | null
   cardCount: number
+  /** In-progress cards whose review has come due. */
   dueCount: number
+  /** Never-reviewed cards waiting to be learned. */
+  newCount: number
 }
 
 /** Mirror of CardResponse.java. */
@@ -66,4 +69,65 @@ export function updateCard(cardId: string, payload: { front?: string; back?: str
 
 export function deleteCard(cardId: string) {
   return api.delete<void>(`/v1/flashcards/cards/${cardId}`)
+}
+
+// --- Review engine (Phase 15) ----------------------------------------------
+
+/** The four-button FSRS grade. Values are the on-the-wire form (never reorder). */
+export enum Grade {
+  Again = 1,
+  Hard = 2,
+  Good = 3,
+  Easy = 4,
+}
+
+/** Mirror of ReviewCardResponse.java — content only, no memory internals. */
+export interface ReviewCardDto {
+  id: string
+  deckId: string
+  front: string
+  back: string
+  isNew: boolean
+}
+
+/** Mirror of ReviewQueueResponse.java. */
+export interface ReviewQueueDto {
+  cards: ReviewCardDto[]
+  dueCount: number
+  newCount: number
+  total: number
+}
+
+/** Mirror of GradeResponse.java — where the scheduler placed the card next. */
+export interface GradeResultDto {
+  cardId: string
+  state: number
+  dueAt: number | null
+  intervalDays: number
+}
+
+/** Mirror of ReviewSummaryResponse.java — the day's review truth (client-zone). */
+export interface ReviewSummaryDto {
+  reviewedToday: number
+  againCount: number
+  hardCount: number
+  goodCount: number
+  easyCount: number
+  dueRemaining: number
+  newRemaining: number
+}
+
+/** The due queue: in-progress-due first, then capped new cards. Optionally deck-scoped. */
+export function fetchReviewQueue(deckId?: string) {
+  return api.get<ReviewQueueDto>('/v1/flashcards/review/queue', {
+    params: deckId ? { deckId } : undefined,
+  })
+}
+
+export function gradeCard(cardId: string, rating: Grade) {
+  return api.post<GradeResultDto>(`/v1/flashcards/review/${cardId}`, { rating })
+}
+
+export function getReviewSummary() {
+  return api.get<ReviewSummaryDto>('/v1/flashcards/review/summary')
 }

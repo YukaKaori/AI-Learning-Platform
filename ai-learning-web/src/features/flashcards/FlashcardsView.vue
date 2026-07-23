@@ -7,14 +7,17 @@ import {
   createDeck,
   deleteCard as apiDeleteCard,
   deleteDeck as apiDeleteDeck,
+  getReviewSummary,
   listCards,
   listDecks,
   updateCard,
   updateDeck,
 } from '@/api/modules/flashcard'
 import type { FlashcardDeckDto, FlashcardDto } from '@/api/modules/flashcard'
+import { getAnalyticsSummary } from '@/api/modules/analytics'
 import { useSubjectsStore } from '@/stores/subjects'
 import SubjectPicker from '@/features/subjects/components/SubjectPicker.vue'
+import ReviewSessionView from '@/features/flashcards/ReviewSessionView.vue'
 import { accentColor, subjectAccentOf } from '@/features/subjects/types'
 
 const { t } = useI18n()
@@ -38,6 +41,7 @@ async function loadDecks() {
 
 onMounted(() => {
   loadDecks().catch((error) => console.error(error))
+  void loadStats()
   void subjectsStore.load()
 })
 
@@ -72,27 +76,50 @@ watch(
   { immediate: true },
 )
 
-// Review-mode preview: flip through the selected deck's cards.
-const reviewOpen = ref(false)
-const reviewIndex = ref(0)
-const flipped = ref(false)
-const reviewCard = computed(() => cards.value[reviewIndex.value])
+// --- Review session (the real graded engine, Phase 15) ---------------------
 
-watch(reviewOpen, () => {
-  reviewIndex.value = 0
-  flipped.value = false
-})
+const reviewSession = ref<{ deckId: string | null; deckName?: string } | null>(null)
 
-function nextCard() {
-  flipped.value = false
-  reviewIndex.value = (reviewIndex.value + 1) % Math.max(cards.value.length, 1)
+function startReview(deckId: string | null, deckName?: string) {
+  reviewSession.value = { deckId, deckName }
 }
 
-const stats = computed(() => [
+async function onReviewClose() {
+  reviewSession.value = null
+  // Re-pull decks (due/new badges shifted) and the headline stats.
+  await loadDecks().catch((error) => console.error(error))
+  void loadStats()
+}
+
+// --- Real headline stats ----------------------------------------------------
+
+const reviewStats = ref<{ reviewsThisWeek: number; retentionPercent: number | null } | null>(null)
+const dueSummary = ref<{ due: number; fresh: number } | null>(null)
+
+async function loadStats() {
+  try {
+    const [analytics, summary] = await Promise.all([getAnalyticsSummary(), getReviewSummary()])
+    reviewStats.value = {
+      reviewsThisWeek: analytics.reviewsThisWeek,
+      retentionPercent: analytics.retentionPercent,
+    }
+    dueSummary.value = { due: summary.dueRemaining, fresh: summary.newRemaining }
+  } catch (error) {
+    console.error(error)
+  }
+}
+
+const stats = computed<{ key: string; value: string | number }[]>(() => [
   { key: 'total', value: decks.value.reduce((sum, d) => sum + d.cardCount, 0) },
-  { key: 'dueToday', value: decks.value.reduce((sum, d) => sum + d.dueCount, 0) },
-  { key: 'reviewed', value: 1284 },
-  { key: 'retention', value: '92%' },
+  { key: 'dueToday', value: dueSummary.value ? dueSummary.value.due + dueSummary.value.fresh : '—' },
+  { key: 'reviewed', value: reviewStats.value?.reviewsThisWeek ?? '—' },
+  {
+    key: 'retention',
+    value:
+      reviewStats.value && reviewStats.value.retentionPercent !== null
+        ? `${reviewStats.value.retentionPercent}%`
+        : '—',
+  },
 ])
 
 // --- Deck CRUD ----------------------------------------------------------------
@@ -253,6 +280,9 @@ async function confirmDeleteCard() {
   <div class="page">
     <AppPageHeader :title="t('flashcards.title')" :subtitle="t('flashcards.subtitle')">
       <template #actions>
+        <AppButton variant="soft" icon-left="play" @click="startReview(null)">
+          {{ t('flashcards.review.reviewAll') }}
+        </AppButton>
         <AppButton icon-left="plus" @click="openCreateDeck">{{ t('flashcards.newDeck') }}</AppButton>
       </template>
     </AppPageHeader>
@@ -277,7 +307,22 @@ async function confirmDeleteCard() {
                   <span class="deck-name">{{ deck.name }}</span>
                   <span class="deck-meta">{{ t('flashcards.cards', { n: deck.cardCount }) }}</span>
                 </div>
-                <AppBadge v-if="deck.dueCount > 0" tone="primary">{{ deck.dueCount }}</AppBadge>
+                <span class="deck-badges">
+                  <AppBadge
+                    v-if="deck.dueCount > 0"
+                    tone="primary"
+                    :title="t('flashcards.dueBadge', { n: deck.dueCount })"
+                  >
+                    {{ deck.dueCount }}
+                  </AppBadge>
+                  <AppBadge
+                    v-if="deck.newCount > 0"
+                    tone="info"
+                    :title="t('flashcards.newBadge', { n: deck.newCount })"
+                  >
+                    +{{ deck.newCount }}
+                  </AppBadge>
+                </span>
               </button>
               <div class="deck-actions">
                 <AppTooltip :content="t('flashcards.editDeck')">
@@ -322,8 +367,8 @@ async function confirmDeleteCard() {
               </AppButton>
               <AppButton
                 icon-left="play"
-                :disabled="cards.length === 0"
-                @click="reviewOpen = true"
+                :disabled="selectedDeck.cardCount === 0"
+                @click="startReview(selectedDeck.id, selectedDeck.name)"
               >
                 {{ t('flashcards.review.start') }}
               </AppButton>
@@ -372,40 +417,12 @@ async function confirmDeleteCard() {
       </section>
     </div>
 
-    <AppDialog v-model="reviewOpen" :title="t('flashcards.review.title')" width="520px">
-      <p class="review-note">{{ t('flashcards.review.placeholder') }}</p>
-      <div
-        v-if="reviewCard"
-        class="review-card"
-        :class="{ flipped }"
-        role="button"
-        tabindex="0"
-        :aria-label="t('flashcards.review.flip')"
-        @click="flipped = !flipped"
-        @keydown.space.prevent="flipped = !flipped"
-        @keydown.enter.prevent="flipped = !flipped"
-      >
-        <span class="review-side-label">
-          {{ flipped ? t('flashcards.back') : t('flashcards.front') }}
-        </span>
-        <span class="review-text">{{ flipped ? reviewCard.back : reviewCard.front }}</span>
-      </div>
-      <template #footer>
-        <div class="review-actions">
-          <AppButton variant="soft" tone="secondary" @click="reviewOpen = false">
-            {{ t('flashcards.review.close') }}
-          </AppButton>
-          <div class="review-actions-right">
-            <AppButton variant="soft" icon-left="refresh" @click="flipped = !flipped">
-              {{ t('flashcards.review.flip') }}
-            </AppButton>
-            <AppButton icon-right="arrow-right" @click="nextCard">
-              {{ reviewIndex + 1 }} / {{ cards.length }}
-            </AppButton>
-          </div>
-        </div>
-      </template>
-    </AppDialog>
+    <ReviewSessionView
+      v-if="reviewSession"
+      :deck-id="reviewSession.deckId"
+      :deck-name="reviewSession.deckName"
+      @close="onReviewClose"
+    />
 
     <AppDialog
       :model-value="deckForm !== null"
@@ -645,6 +662,13 @@ async function confirmDeleteCard() {
   color: var(--color-text-tertiary);
 }
 
+.deck-badges {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
 .deck-actions {
   display: flex;
   align-items: center;
@@ -809,64 +833,6 @@ async function confirmDeleteCard() {
 
 .form-textarea::placeholder {
   color: var(--color-text-tertiary);
-}
-
-/* Review preview */
-.review-note {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-xs);
-  color: var(--color-text-tertiary);
-}
-
-.review-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  min-height: 220px;
-  padding: var(--space-6);
-  border: var(--border-width-sm) solid var(--color-border);
-  border-radius: var(--radius-xl);
-  background-color: var(--color-bg);
-  text-align: center;
-  cursor: pointer;
-  transition:
-    transform var(--duration-base) var(--ease-spring),
-    border-color var(--duration-base) var(--ease-out);
-}
-
-.review-card:hover {
-  border-color: var(--color-primary);
-}
-
-.review-card.flipped {
-  transform: rotateX(360deg);
-}
-
-.review-side-label {
-  font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: var(--tracking-wide);
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
-}
-
-.review-text {
-  font-size: var(--text-lg);
-  line-height: var(--leading-normal);
-}
-
-.review-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: 100%;
-}
-
-.review-actions-right {
-  display: flex;
-  gap: var(--space-2);
 }
 
 @media (max-width: 900px) {

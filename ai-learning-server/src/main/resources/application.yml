@@ -46,6 +46,10 @@ app:
       refresh-token-ttl: 14d
     password-policy:
       min-length: 8
+  flashcard:
+    # Max brand-new cards introduced per user per day (client-zone). Caps the
+    # first review queue of a freshly migrated deck. See Phase 15 / ReviewService.
+    new-cards-per-day: 20
   ai:
     provider: deepseek
     max-prompt-chars: 24000

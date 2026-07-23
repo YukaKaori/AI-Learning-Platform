@@ -211,6 +211,17 @@ Prompts are written in Chinese — the product targets Chinese users and
 DeepSeek is the default provider — but `TUTOR`'s prompt explicitly instructs
 the model to answer in whatever language the user wrote in.
 
+Since Phase 15 the `FLASHCARDS` prompt no longer just asks for "concise
+cards": it encodes the spaced-repetition rules that make a card *schedulable* —
+atomicity (one fact per card; compound content is split into several cards),
+answer-side brevity (the back is the single fact, not an explanation),
+self-contained questions, no list-answers, and language-matching — because the
+generated deck now flows straight into the real FSRS scheduler (Phase 15
+review engine), where low-quality cards cannot be reviewed effectively. The
+JSON wire shape (`{"cards":[{"front":...,"back":...}]}`) is unchanged, so the
+`FlashcardsWire` parse path is untouched; `PromptTemplateTest` guards both the
+shape and the quality directives against regression.
+
 ## Conversation flow (AI Tutor)
 
 `AiConversationService` owns conversation CRUD (list/create/rename/archive/

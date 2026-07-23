@@ -12,6 +12,13 @@ export interface AnalyticsSummaryDto {
   streakDays: number
   taskCompletionPercent: number | null
   aiChatsThisWeek: number
+  /** Graded flashcard reviews this week (Phase 15). */
+  reviewsThisWeek: number
+  /**
+   * Of reviews recalled after a real interval this week, the % graded Hard or
+   * better; null when there were none — render as "—", never a fabricated 0.
+   */
+  retentionPercent: number | null
 }
 
 /**
@@ -23,6 +30,8 @@ export interface ActivityDayDto {
   date: string
   minutes: number
   sessions: number
+  /** Graded flashcard reviews on this day (Phase 15). */
+  reviews: number
 }
 
 /**

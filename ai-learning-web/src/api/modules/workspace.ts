@@ -6,8 +6,9 @@ import type { TaskDto } from './task'
 
 /**
  * Mirror of WorkspaceSummaryResponse.Stats. `dailyGoalMinutes` comes from
- * preferences (or its default 60); `dueCards` counts flashcards with
- * `dueAt ≤ now`; `activeSubjects` counts subjects in status `active`.
+ * preferences (or its default 60); `dueCards` is the live actionable review
+ * count (in-progress-due + today's remaining new-card budget, Phase 15);
+ * `activeSubjects` counts subjects in status `active`.
  */
 export interface WorkspaceStatsDto {
   streakDays: number

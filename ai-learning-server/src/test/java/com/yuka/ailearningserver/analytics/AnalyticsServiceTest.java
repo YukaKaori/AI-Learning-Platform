@@ -65,7 +65,7 @@ class AnalyticsServiceTest {
     @BeforeEach
     void cleanTables() {
         for (String table : List.of("subjects", "study_sessions", "learning_tasks",
-                "ai_conversations", "ai_messages")) {
+                "ai_conversations", "ai_messages", "review_logs")) {
             jdbcTemplate.update("DELETE FROM " + table);
         }
         // Whole-second anchor — DATETIME columns round fractional seconds on
@@ -116,6 +116,36 @@ class AnalyticsServiceTest {
         assertThat(summary.streakDays()).isZero();
         assertThat(summary.taskCompletionPercent()).isNull();
         assertThat(summary.aiChatsThisWeek()).isZero();
+        assertThat(summary.reviewsThisWeek()).isZero();
+        assertThat(summary.retentionPercent()).isNull(); // no mature reviews = "—", not 0
+    }
+
+    @Test
+    void summaryReportsWeeklyReviewsAndRetentionOnMatureReviewsOnly() {
+        // 4 mature reviews (elapsed ≥ 1): 3 remembered (rating ≥ 2), 1 lapse → 75%.
+        insertReview(USER, base - HOUR, 3, 5);   // good, recalled
+        insertReview(USER, base - HOUR, 2, 3);   // hard, recalled
+        insertReview(USER, base - HOUR, 4, 8);   // easy, recalled
+        insertReview(USER, base - HOUR, 1, 4);   // again, lapse
+        // Excluded from retention: a first-introduction (elapsed null) and a
+        // same-day learning rep (elapsed 0) — but both still count as reviews.
+        insertReview(USER, base - HOUR, 3, null);
+        insertReview(USER, base - HOUR, 1, 0);
+        insertReview(OTHER_USER, base - HOUR, 1, 5); // someone else's — ignored
+
+        AnalyticsSummaryResponse summary = analyticsService.summary(USER);
+        assertThat(summary.reviewsThisWeek()).isEqualTo(6);
+        assertThat(summary.retentionPercent()).isEqualTo(75);
+    }
+
+    @Test
+    void activityCountsReviewsPerDay() {
+        insertReview(USER, base, 3, 5);
+        insertReview(USER, base, 4, 6);
+        insertReview(USER, base - DAY, 1, 2);
+
+        List<ActivityDayResponse> days = analyticsService.activity(USER, 3);
+        assertThat(days).extracting(ActivityDayResponse::reviews).containsExactly(0, 1, 2);
     }
 
     @Test
@@ -181,5 +211,16 @@ class AnalyticsServiceTest {
     private void endedSession(Long userId, String subjectId, long endsAt, int minutes) {
         sessionService.create(userId,
                 new CreateStudySessionRequest(null, subjectId, endsAt - minutes * MINUTE, endsAt));
+    }
+
+    /** A graded review at {@code reviewedAt}; {@code elapsedDays} null = first introduction. */
+    private void insertReview(Long userId, long reviewedAt, int rating, Integer elapsedDays) {
+        Timestamp at = Timestamp.from(Instant.ofEpochMilli(reviewedAt));
+        jdbcTemplate.update("""
+                        INSERT INTO review_logs (id, user_id, card_id, deck_id, rating, state, elapsed_days,
+                                                 scheduled_days, stability, difficulty, reviewed_at,
+                                                 created_at, updated_at, deleted)
+                        VALUES (?, ?, 1, 1, ?, 2, ?, 0, 2.5, 5.0, ?, ?, ?, 0)""",
+                System.nanoTime(), userId, rating, elapsedDays, at, at, at);
     }
 }

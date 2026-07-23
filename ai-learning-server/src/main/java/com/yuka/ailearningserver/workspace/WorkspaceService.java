@@ -9,8 +9,7 @@ import com.yuka.ailearningserver.analytics.dto.ActivityDayResponse;
 import com.yuka.ailearningserver.calendar.dto.StudySessionResponse;
 import com.yuka.ailearningserver.calendar.entity.StudySession;
 import com.yuka.ailearningserver.calendar.mapper.StudySessionMapper;
-import com.yuka.ailearningserver.flashcard.entity.Flashcard;
-import com.yuka.ailearningserver.flashcard.mapper.FlashcardMapper;
+import com.yuka.ailearningserver.flashcard.ReviewService;
 import com.yuka.ailearningserver.flashcard.entity.FlashcardDeck;
 import com.yuka.ailearningserver.flashcard.mapper.FlashcardDeckMapper;
 import com.yuka.ailearningserver.material.entity.LearningMaterial;
@@ -53,37 +52,41 @@ public class WorkspaceService {
     private static final int RECENT_NOTES_LIMIT = 3;
 
     private final AnalyticsService analyticsService;
+    private final ReviewService reviewService;
     private final PreferenceService preferenceService;
     private final SubjectMapper subjectMapper;
     private final LearningMaterialMapper materialMapper;
     private final NoteMapper noteMapper;
     private final FlashcardDeckMapper deckMapper;
-    private final FlashcardMapper flashcardMapper;
     private final LearningTaskMapper taskMapper;
     private final StudySessionMapper sessionMapper;
     private final AiConversationMapper conversationMapper;
 
-    public WorkspaceService(AnalyticsService analyticsService, PreferenceService preferenceService,
-                            SubjectMapper subjectMapper, LearningMaterialMapper materialMapper,
-                            NoteMapper noteMapper, FlashcardDeckMapper deckMapper,
-                            FlashcardMapper flashcardMapper, LearningTaskMapper taskMapper,
+    public WorkspaceService(AnalyticsService analyticsService, ReviewService reviewService,
+                            PreferenceService preferenceService, SubjectMapper subjectMapper,
+                            LearningMaterialMapper materialMapper, NoteMapper noteMapper,
+                            FlashcardDeckMapper deckMapper, LearningTaskMapper taskMapper,
                             StudySessionMapper sessionMapper, AiConversationMapper conversationMapper) {
         this.analyticsService = analyticsService;
+        this.reviewService = reviewService;
         this.preferenceService = preferenceService;
         this.subjectMapper = subjectMapper;
         this.materialMapper = materialMapper;
         this.noteMapper = noteMapper;
         this.deckMapper = deckMapper;
-        this.flashcardMapper = flashcardMapper;
         this.taskMapper = taskMapper;
         this.sessionMapper = sessionMapper;
         this.conversationMapper = conversationMapper;
     }
 
-    public WorkspaceSummaryResponse summary(Long userId) {
+    /**
+     * @param zone the caller's timezone (from {@code X-Client-Timezone}); only
+     *             the live due-count's new-card budget is day-bucketed by it.
+     */
+    public WorkspaceSummaryResponse summary(Long userId, ZoneId zone) {
         List<ActivityDayResponse> weekActivity = analyticsService.activity(userId, WEEK_DAYS);
         return new WorkspaceSummaryResponse(
-                stats(userId, weekActivity.getLast().minutes()),
+                stats(userId, weekActivity.getLast().minutes(), zone),
                 continueLearning(userId),
                 upcomingTasks(userId),
                 recentConversations(userId),
@@ -92,11 +95,7 @@ public class WorkspaceService {
                 weekActivity);
     }
 
-    private WorkspaceSummaryResponse.Stats stats(Long userId, int studiedTodayMinutes) {
-        long dueCards = flashcardMapper.selectCount(new LambdaQueryWrapper<Flashcard>()
-                .eq(Flashcard::getUserId, userId)
-                .isNotNull(Flashcard::getDueAt)
-                .le(Flashcard::getDueAt, LocalDateTime.now()));
+    private WorkspaceSummaryResponse.Stats stats(Long userId, int studiedTodayMinutes, ZoneId zone) {
         long activeSubjects = subjectMapper.selectCount(new LambdaQueryWrapper<Subject>()
                 .eq(Subject::getUserId, userId)
                 .eq(Subject::getStatus, SubjectStatus.ACTIVE));
@@ -104,7 +103,7 @@ public class WorkspaceService {
                 analyticsService.streakDays(userId),
                 studiedTodayMinutes,
                 preferenceService.get(userId).dailyGoalMinutes(),
-                Math.toIntExact(dueCards),
+                reviewService.dueCount(userId, zone),
                 Math.toIntExact(activeSubjects));
     }
 

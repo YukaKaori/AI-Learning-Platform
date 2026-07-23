@@ -129,11 +129,17 @@ public class FlashcardService {
     private DeckResponse toDeckResponse(Long userId, FlashcardDeck deck) {
         long cardCount = cardMapper.selectCount(new LambdaQueryWrapper<Flashcard>()
                 .eq(Flashcard::getDeckId, deck.getId()));
+        // due = already-introduced cards whose review has come up (never-reviewed
+        // cards have no meaningful due date); new = never-reviewed cards. The
+        // daily new-card cap is a session concern, not a per-deck badge one.
         long dueCount = cardMapper.selectCount(new LambdaQueryWrapper<Flashcard>()
                 .eq(Flashcard::getDeckId, deck.getId())
-                .isNotNull(Flashcard::getDueAt)
+                .isNotNull(Flashcard::getLastReviewedAt)
                 .le(Flashcard::getDueAt, LocalDateTime.now()));
-        return DeckResponse.from(deck, (int) cardCount, (int) dueCount);
+        long newCount = cardMapper.selectCount(new LambdaQueryWrapper<Flashcard>()
+                .eq(Flashcard::getDeckId, deck.getId())
+                .isNull(Flashcard::getLastReviewedAt));
+        return DeckResponse.from(deck, (int) cardCount, (int) dueCount, (int) newCount);
     }
 
     private FlashcardDeck requireOwnedDeck(Long userId, Long deckId) {

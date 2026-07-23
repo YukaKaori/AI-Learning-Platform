@@ -28,6 +28,7 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 
@@ -43,6 +44,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WorkspaceServiceTest {
 
     private static final Long USER = 1L;
+    private static final ZoneId ZONE = ZoneId.systemDefault();
     private static final long MINUTE = 60_000L;
     private static final long HOUR = 3_600_000L;
     private static final long DAY = 86_400_000L;
@@ -69,8 +71,8 @@ class WorkspaceServiceTest {
     @BeforeEach
     void cleanTables() {
         for (String table : List.of("subjects", "learning_materials", "notes", "flashcard_decks",
-                "flashcards", "learning_tasks", "study_sessions", "ai_conversations", "ai_messages",
-                "user_preferences")) {
+                "flashcards", "review_logs", "learning_tasks", "study_sessions", "ai_conversations",
+                "ai_messages", "user_preferences")) {
             jdbcTemplate.update("DELETE FROM " + table);
         }
         base = Instant.now().truncatedTo(ChronoUnit.SECONDS).toEpochMilli();
@@ -78,7 +80,7 @@ class WorkspaceServiceTest {
 
     @Test
     void emptyAccountGetsZerosAndEmptySectionsNotErrors() {
-        WorkspaceSummaryResponse summary = workspaceService.summary(USER);
+        WorkspaceSummaryResponse summary = workspaceService.summary(USER, ZONE);
 
         assertThat(summary.stats())
                 .isEqualTo(new WorkspaceSummaryResponse.Stats(0, 0, 60, 0, 0)); // 60 = preferences default
@@ -96,14 +98,16 @@ class WorkspaceServiceTest {
         preferenceService.update(USER, new UpdatePreferencesRequest(null, null, 120));
         sessionService.create(USER, new CreateStudySessionRequest(null, null, base - 30 * MINUTE, base));
         subjectService.create(USER, new CreateSubjectRequest("Piano", null, null, null));
-        insertFlashcard(9001L, base - DAY);  // due
-        insertFlashcard(9002L, base + DAY);  // not yet due
+        // Both are brand-new (never reviewed) cards, so both are actionable today
+        // under the new-card cap (20) — the live due-count is the studyable queue size.
+        insertFlashcard(9001L, base - DAY);
+        insertFlashcard(9002L, base + DAY);
 
-        WorkspaceSummaryResponse.Stats stats = workspaceService.summary(USER).stats();
+        WorkspaceSummaryResponse.Stats stats = workspaceService.summary(USER, ZONE).stats();
         assertThat(stats.streakDays()).isEqualTo(1);
         assertThat(stats.studiedTodayMinutes()).isEqualTo(30);
         assertThat(stats.dailyGoalMinutes()).isEqualTo(120);
-        assertThat(stats.dueCards()).isEqualTo(1);
+        assertThat(stats.dueCards()).isEqualTo(2);
         assertThat(stats.activeSubjects()).isEqualTo(1);
     }
 
@@ -122,7 +126,7 @@ class WorkspaceServiceTest {
                 new CreateTaskRequest("already done", null, null, base + HOUR, null));
         taskService.update(USER, Long.valueOf(done.id()), new UpdateTaskRequest(null, null, "done", null, null, null));
 
-        List<TaskResponse> upcoming = workspaceService.summary(USER).upcomingTasks();
+        List<TaskResponse> upcoming = workspaceService.summary(USER, ZONE).upcomingTasks();
         assertThat(upcoming).hasSize(5);
         assertThat(upcoming.getFirst().id()).isEqualTo(dueFirst.id());
         assertThat(upcoming.get(1).id()).isEqualTo(dueSecond.id());
@@ -150,7 +154,7 @@ class WorkspaceServiceTest {
         sessionService.create(USER, new CreateStudySessionRequest("today", null, base - 30 * MINUTE, base));
         sessionService.create(USER, new CreateStudySessionRequest("old", null, base - 3 * DAY, base - 3 * DAY + HOUR));
 
-        WorkspaceSummaryResponse summary = workspaceService.summary(USER);
+        WorkspaceSummaryResponse summary = workspaceService.summary(USER, ZONE);
         assertThat(summary.recentNotes())
                 .extracting(WorkspaceSummaryResponse.RecentNote::title)
                 .containsExactly("note 3", "note 2", "note 1");
@@ -173,7 +177,7 @@ class WorkspaceServiceTest {
         noteService.create(USER, new CreateNoteRequest("linked", null, null, subjects[0].id()));
 
         List<WorkspaceSummaryResponse.ContinueLearningItem> items =
-                workspaceService.summary(USER).continueLearning();
+                workspaceService.summary(USER, ZONE).continueLearning();
         assertThat(items).extracting(WorkspaceSummaryResponse.ContinueLearningItem::name)
                 .containsExactly("subject 0", "subject 3", "subject 2");
     }

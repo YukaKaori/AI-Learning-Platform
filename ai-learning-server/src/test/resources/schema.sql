@@ -1,6 +1,6 @@
 -- H2 (MySQL mode) schema for tests — Flyway is disabled on the test profile,
 -- so the tables exercised by the suite are mirrored here. Keep in sync with
--- db/migration/V1__create_user_tables.sql through V5.
+-- db/migration/V1__create_user_tables.sql through V6.
 
 DROP TABLE IF EXISTS users;
 CREATE TABLE users
@@ -115,11 +115,35 @@ CREATE TABLE flashcards
     due_at           DATETIME NULL,
     interval_days    INT      NULL,
     ease             INT      NULL,
+    stability        DOUBLE   NULL,
+    difficulty       DOUBLE   NULL,
+    state            TINYINT  NOT NULL DEFAULT 1,
+    step             INT      NULL DEFAULT 0,
     review_count     INT      NOT NULL DEFAULT 0,
     last_reviewed_at DATETIME NULL,
     created_at       DATETIME NOT NULL,
     updated_at       DATETIME NOT NULL,
     deleted          TINYINT  NOT NULL DEFAULT 0,
+    PRIMARY KEY (id)
+);
+
+DROP TABLE IF EXISTS review_logs;
+CREATE TABLE review_logs
+(
+    id             BIGINT   NOT NULL,
+    user_id        BIGINT   NOT NULL,
+    card_id        BIGINT   NOT NULL,
+    deck_id        BIGINT   NOT NULL,
+    rating         TINYINT  NOT NULL,
+    state          TINYINT  NOT NULL,
+    elapsed_days   INT      NULL,
+    scheduled_days INT      NOT NULL,
+    stability      DOUBLE   NOT NULL,
+    difficulty     DOUBLE   NOT NULL,
+    reviewed_at    DATETIME NOT NULL,
+    created_at     DATETIME NOT NULL,
+    updated_at     DATETIME NOT NULL,
+    deleted        TINYINT  NOT NULL DEFAULT 0,
     PRIMARY KEY (id)
 );
 

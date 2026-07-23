@@ -7,10 +7,27 @@ const http = axios.create({
   timeout: 15_000,
 })
 
+/**
+ * The caller's IANA timezone, resolved once. The backend uses it purely for
+ * day-bucketing (the flashcard new-card cap, "reviewed today", the live due
+ * count); a missing/invalid value falls back to the server zone, so this is a
+ * best-effort hint, never required.
+ */
+const CLIENT_TIMEZONE = (() => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone
+  } catch {
+    return ''
+  }
+})()
+
 http.interceptors.request.use((config) => {
   const token = tokenStorage.getAccessToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  if (CLIENT_TIMEZONE) {
+    config.headers['X-Client-Timezone'] = CLIENT_TIMEZONE
   }
   return config
 })

@@ -10,9 +10,21 @@ import java.util.List;
  * Add new settings here instead of scattering {@code @Value} lookups.
  */
 @ConfigurationProperties(prefix = "app")
-public record AppProperties(Cors cors, Security security, Ai ai) {
+public record AppProperties(Cors cors, Security security, Ai ai, Flashcard flashcard) {
 
     public record Cors(List<String> allowedOrigins) {
+    }
+
+    /**
+     * Spaced-repetition tuning. Only the operator-facing dial lives here; the FSRS
+     * weight vector and target retention are algorithm internals (see
+     * {@code ReviewParameters}) that the roadmap never asks a user to touch.
+     *
+     * @param newCardsPerDay maximum brand-new cards introduced into the due queue
+     *                       per user per (client-zone) day. Caps the first queue of
+     *                       a freshly migrated deck so it is studyable, not overwhelming.
+     */
+    public record Flashcard(int newCardsPerDay) {
     }
 
     public record Security(Jwt jwt, PasswordPolicy passwordPolicy) {
